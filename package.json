@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "build": "tsc",
-    "test": "vitest run"
+    "test": "vitest run",
+    "calibrate": "npm run build && node dist/calibration/run-calibration.js"
   },
   "devDependencies": {
     "typescript": "^7.0.2",

@@ -5,6 +5,13 @@ export interface MatchScore {
   readonly home: number;
   readonly away: number;
 }
+export interface PitchPosition {
+  // Lengthwise position in metres: 0 to 105.
+  readonly x: number;
+
+  // Widthwise position in metres: 0 to 68.
+  readonly y: number;
+}
 
 export interface MatchState {
   readonly homeTeam: Team;
@@ -19,6 +26,9 @@ export interface MatchState {
 
   readonly possessionTeamId: TeamId | null;
   readonly ballCarrierId: PlayerId | null;
+
+  // Current ball location on the pitch.
+  readonly ballPosition: PitchPosition;
 
   readonly events: readonly MatchEvent[];
 

@@ -9,6 +9,7 @@ export type MatchPhase =
 export type MatchEventType =
   | "kickoff"
   | "pass"
+  | "carry"
   | "tackle"
   | "shot"
   | "save"

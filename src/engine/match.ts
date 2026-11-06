@@ -6,6 +6,7 @@ import { createRng } from "./rng.js";
 import { validateTeamSelection } from "./validation.js";
 import { getMatchMinute } from "./clock.js";
 import { capActionDuration, getClockTransition } from "./match-clock.js";
+import { moveBall } from "./pitch.js";
 
 export interface CreateMatchOptions {
   readonly homeTeam: Team;
@@ -46,6 +47,7 @@ export function createMatchState(options: CreateMatchOptions): MatchState {
     score: { home: 0, away: 0 },
     possessionTeamId: null,
     ballCarrierId: null,
+    ballPosition: { x: 52.5, y: 34 },
     events: [],
     rngState: rng.getState(),
   };
@@ -166,6 +168,82 @@ export function startSecondHalf(
   };
 }
 
+export function makeCarry(state: MatchState): MatchState {
+  if (state.phase !== "first-half" && state.phase !== "second-half") {
+    throw new Error("Carrying is only allowed during active play.");
+  }
+
+  if (!state.possessionTeamId || !state.ballCarrierId) {
+    throw new Error("There is no player in possession.");
+  }
+
+  const isHome = state.possessionTeamId === state.homeTeam.id;
+  const attackingTeam = isHome ? state.homeTeam : state.awayTeam;
+  const selection = isHome ? state.homeSelection : state.awaySelection;
+
+  const carrier = attackingTeam.squad.find(
+    (player) => player.id === state.ballCarrierId,
+  );
+
+  if (!carrier || !selection.startingXI.includes(carrier.id)) {
+    throw new Error("Ball carrier must be an active player.");
+  }
+
+  if (carrier.primaryPosition === "GK") {
+    throw new Error("Goalkeepers cannot carry the ball in this action.");
+  }
+
+  const attackingRight = state.phase === "first-half" ? isHome : !isHome;
+
+  const rng = createRng(state.rngState);
+
+  const skillFactor =
+    (carrier.attributes.dribbling + carrier.attributes.pace) / 200;
+
+  const forwardDistance = 1.5 + skillFactor * 3 + rng.next() * 2;
+  const lateralDistance = (rng.next() - 0.5) * 4;
+
+  const ballPosition = moveBall(
+    state.ballPosition,
+    attackingRight,
+    forwardDistance,
+    lateralDistance,
+  );
+
+  const proposedDuration = 5 + Math.floor(rng.next() * 5);
+
+  const duration = capActionDuration(
+    state.elapsedSeconds,
+    proposedDuration,
+    state.phase,
+  );
+
+  const elapsedSeconds = state.elapsedSeconds + duration;
+  const clock = getClockTransition(elapsedSeconds);
+
+  const nextEvent: MatchEvent = {
+    id: state.events.length + 1,
+    type: "carry",
+    minute: getMatchMinute(elapsedSeconds),
+    elapsedSeconds,
+    teamId: attackingTeam.id,
+    playerId: carrier.id,
+    description: `${carrier.name} carries the ball forward.`,
+    outcome: "successful",
+  };
+
+  return {
+    ...state,
+    phase: clock.phase,
+    elapsedSeconds,
+    ballPosition,
+    possessionTeamId: attackingTeam.id,
+    ballCarrierId: carrier.id,
+    rngState: rng.getState(),
+    events: [...state.events, nextEvent],
+  };
+}
+
 export function makePass(state: MatchState, receiverId: string): MatchState {
   if (state.phase !== "first-half" && state.phase !== "second-half") {
     throw new Error("Passing is only allowed during active play.");
@@ -176,6 +254,7 @@ export function makePass(state: MatchState, receiverId: string): MatchState {
   }
 
   const isHome = state.possessionTeamId === state.homeTeam.id;
+  const attackingRight = state.phase === "first-half" ? isHome : !isHome;
 
   const team = isHome ? state.homeTeam : state.awayTeam;
   const opposition = isHome ? state.awayTeam : state.homeTeam;
@@ -248,6 +327,19 @@ export function makePass(state: MatchState, receiverId: string): MatchState {
           : best,
       );
 
+  const forwardDistance = successful
+    ? 4 + rng.next() * 10
+    : -(2 + rng.next() * 4);
+
+  const lateralDistance = (rng.next() - 0.5) * 12;
+
+  const ballPosition = moveBall(
+    state.ballPosition,
+    attackingRight,
+    forwardDistance,
+    lateralDistance,
+  );
+
   const nextEvent = {
     id: state.events.length + 1,
     type: "pass" as const,
@@ -267,6 +359,7 @@ export function makePass(state: MatchState, receiverId: string): MatchState {
     ...state,
     phase: clock.phase,
     elapsedSeconds,
+    ballPosition,
     possessionTeamId: successful ? team.id : opposition.id,
     ballCarrierId: successful ? receiver.id : (interceptor?.id ?? null),
     rngState: rng.getState(),
@@ -373,12 +466,9 @@ export function makeShot(state: MatchState): MatchState {
   }
 
   const isHome = state.possessionTeamId === state.homeTeam.id;
-
   const attackingTeam = isHome ? state.homeTeam : state.awayTeam;
   const defendingTeam = isHome ? state.awayTeam : state.homeTeam;
-
   const attackingSelection = isHome ? state.homeSelection : state.awaySelection;
-
   const defendingSelection = isHome ? state.awaySelection : state.homeSelection;
 
   const shooter = attackingTeam.squad.find(
@@ -397,30 +487,42 @@ export function makeShot(state: MatchState): MatchState {
     throw new Error("Opposition goalkeeper could not be found.");
   }
 
+  const attackingRight = state.phase === "first-half" ? isHome : !isHome;
+
+  const distanceToGoal = attackingRight
+    ? 105 - state.ballPosition.x
+    : state.ballPosition.x;
+
   const rng = createRng(state.rngState);
 
-  // Estimate whether the shot is on target.
+  // Long-range attempts are less accurate than close-range attempts.
+  const distancePenalty = Math.max(0, distanceToGoal - 12) * 0.008;
+
   const accuracyProbability = Math.max(
-    0.35,
+    0.15,
     Math.min(
-      0.9,
-      0.62 +
+      0.8,
+      0.48 +
         (shooter.attributes.shooting - 50) * 0.003 +
-        (shooter.attributes.finishing - 50) * 0.003,
+        (shooter.attributes.finishing - 50) * 0.002 -
+        distancePenalty,
     ),
   );
 
   const onTarget = rng.next() < accuracyProbability;
 
-  // Estimate the goalkeeper's chance of saving an on-target shot.
+  // The goalkeeper has a better chance of saving shots from distance.
+  const distanceSaveBonus = Math.max(0, distanceToGoal - 12) * 0.006;
+
   const saveProbability = Math.max(
     0.2,
     Math.min(
-      0.8,
+      0.9,
       0.5 +
         (goalkeeper.attributes.goalkeeping - 50) * 0.005 -
         (shooter.attributes.shooting - 50) * 0.002 -
-        (shooter.attributes.finishing - 50) * 0.002,
+        (shooter.attributes.finishing - 50) * 0.002 +
+        distanceSaveBonus,
     ),
   );
 
@@ -435,13 +537,14 @@ export function makeShot(state: MatchState): MatchState {
     proposedDuration,
     state.phase,
   );
+
   const elapsedSeconds = state.elapsedSeconds + duration;
   const clock = getClockTransition(elapsedSeconds);
 
   const nextEvents: MatchEvent[] = [
     {
       id: state.events.length + 1,
-      type: "shot" as const,
+      type: "shot",
       minute: getMatchMinute(elapsedSeconds),
       elapsedSeconds,
       teamId: attackingTeam.id,
@@ -458,13 +561,13 @@ export function makeShot(state: MatchState): MatchState {
   if (saved) {
     nextEvents.push({
       id: state.events.length + 2,
-      type: "save" as const,
+      type: "save",
       minute: getMatchMinute(elapsedSeconds),
       elapsedSeconds,
       teamId: defendingTeam.id,
       playerId: goalkeeper.id,
       targetPlayerId: shooter.id,
-      outcome: "successful" as const,
+      outcome: "successful",
       description: `${goalkeeper.name} makes a save.`,
     });
   }
@@ -472,15 +575,17 @@ export function makeShot(state: MatchState): MatchState {
   if (goal) {
     nextEvents.push({
       id: state.events.length + 2,
-      type: "goal" as const,
+      type: "goal",
       minute: getMatchMinute(elapsedSeconds),
       elapsedSeconds,
       teamId: attackingTeam.id,
       playerId: shooter.id,
-      outcome: "goal" as const,
+      outcome: "goal",
       description: `GOAL! ${shooter.name} scores for ${attackingTeam.name}.`,
     });
   }
+
+  const defendingGoalkeeperId = goalkeeper.id;
 
   return {
     ...state,
@@ -490,20 +595,14 @@ export function makeShot(state: MatchState): MatchState {
       home: state.score.home + (goal && isHome ? 1 : 0),
       away: state.score.away + (goal && !isHome ? 1 : 0),
     },
-    possessionTeamId: goal
-      ? defendingTeam.id
-      : saved
-        ? defendingTeam.id
-        : attackingTeam.id,
-    ballCarrierId: goal
-      ? (defendingSelection.startingXI.find((id) =>
-          defendingTeam.squad.some(
-            (player) => player.id === id && player.primaryPosition === "ST",
-          ),
-        ) ?? null)
-      : saved
-        ? goalkeeper.id
-        : shooter.id,
+    possessionTeamId:
+      attackingTeam.id === state.possessionTeamId
+        ? saved || goal || !onTarget
+          ? defendingTeam.id
+          : attackingTeam.id
+        : defendingTeam.id,
+    ballCarrierId:
+      saved || goal || !onTarget ? defendingGoalkeeperId : shooter.id,
     rngState: rng.getState(),
     events: [...state.events, ...nextEvents],
   };

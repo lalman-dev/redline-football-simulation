@@ -45,6 +45,7 @@ function createState(phase: MatchState["phase"]): MatchState {
     score: { home: 1, away: 0 },
     possessionTeamId: null,
     ballCarrierId: null,
+    ballPosition: { x: 52.5, y: 34 },
     events: [],
     rngState: 12345,
   };

@@ -92,6 +92,7 @@ function createState(seed = 12345): MatchState {
     score: { home: 0, away: 0 },
     possessionTeamId: homeTeam.id,
     ballCarrierId: "home-player-11",
+    ballPosition: { x: 52.5, y: 34 },
     events: [],
     rngState: seed,
   };
@@ -131,8 +132,8 @@ describe("getShootingProbability", () => {
   });
 
   it("keeps shooting probability within its configured limits", () => {
-    expect(getShootingProbability(createState())).toBeGreaterThanOrEqual(0.02);
-    expect(getShootingProbability(createState())).toBeLessThanOrEqual(0.65);
+    expect(getShootingProbability(createState())).toBeGreaterThanOrEqual(0.001);
+    expect(getShootingProbability(createState())).toBeLessThanOrEqual(0.08);
   });
 
   it("rejects a match without possession", () => {

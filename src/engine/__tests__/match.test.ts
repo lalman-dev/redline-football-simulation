@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   createMatchState,
+  makeCarry,
   makePass,
   makeTackle,
   makeShot,
@@ -230,6 +231,63 @@ describe("startSecondHalf", () => {
   });
 });
 
+describe("makeCarry", () => {
+  const homeTeam = createTeam("home");
+  const awayTeam = createTeam("away");
+
+  const initialState = createMatchState({
+    homeTeam,
+    awayTeam,
+    homeSelection: createSelection(homeTeam),
+    awaySelection: createSelection(awayTeam),
+    seed: 12345,
+  });
+
+  function createStartedState(seed = 12345) {
+    const match = createMatchState({
+      homeTeam,
+      awayTeam,
+      homeSelection: createSelection(homeTeam),
+      awaySelection: createSelection(awayTeam),
+      seed,
+    });
+
+    return startMatch(match, homeTeam.id);
+  }
+
+  it("retains possession and keeps the same ball carrier", () => {
+    const state = createStartedState();
+    const nextState = makeCarry(state);
+
+    expect(nextState.possessionTeamId).toBe(state.possessionTeamId);
+    expect(nextState.ballCarrierId).toBe(state.ballCarrierId);
+  });
+
+  it("moves the ball forward in the attacking direction", () => {
+    const state = createStartedState();
+    const nextState = makeCarry(state);
+
+    expect(nextState.ballPosition.x).toBeGreaterThan(state.ballPosition.x);
+  });
+
+  it("advances match time and records a carry event", () => {
+    const state = createStartedState();
+    const nextState = makeCarry(state);
+
+    expect(nextState.elapsedSeconds).toBeGreaterThan(state.elapsedSeconds);
+    expect(nextState.events.at(-1)?.type).toBe("carry");
+  });
+
+  it("produces deterministic results for identical seeds", () => {
+    const first = makeCarry(createStartedState(12345));
+    const second = makeCarry(createStartedState(12345));
+
+    expect(first.ballPosition).toEqual(second.ballPosition);
+    expect(first.events).toEqual(second.events);
+    expect(first.rngState).toBe(second.rngState);
+  });
+});
+
 describe("makePass", () => {
   function createStartedMatch(seed: number) {
     const homeTeam = createTeam("home");
@@ -294,6 +352,69 @@ describe("makePass", () => {
     expect(() => makePass(state, "home-player-11")).toThrow(
       "A player cannot pass to themselves.",
     );
+  });
+
+  it("moves the ball forward after a successful pass", () => {
+    const state = createStartedMatch(12345);
+    const nextState = makePass(state, "home-player-10");
+    const passEvent = nextState.events[1];
+
+    if (passEvent?.outcome === "successful") {
+      expect(nextState.ballPosition.x).toBeGreaterThan(state.ballPosition.x);
+    }
+  });
+
+  it("moves the ball within pitch boundaries", () => {
+    const state = createStartedMatch(12345);
+    const nextState = makePass(state, "home-player-10");
+
+    expect(nextState.ballPosition.x).toBeGreaterThanOrEqual(0);
+    expect(nextState.ballPosition.x).toBeLessThanOrEqual(105);
+    expect(nextState.ballPosition.y).toBeGreaterThanOrEqual(0);
+    expect(nextState.ballPosition.y).toBeLessThanOrEqual(68);
+  });
+
+  it("moves the ball in the opposite direction for the away team", () => {
+    const homeTeam = createTeam("home");
+    const awayTeam = createTeam("away");
+
+    const state = createMatchState({
+      homeTeam,
+      awayTeam,
+      homeSelection: createSelection(homeTeam),
+      awaySelection: createSelection(awayTeam),
+      seed: 12345,
+    });
+
+    const startedState = startMatch(state, awayTeam.id);
+    const nextState = makePass(startedState, "away-player-10");
+    const passEvent = nextState.events[1];
+
+    if (passEvent?.outcome === "successful") {
+      expect(nextState.ballPosition.x).toBeLessThan(
+        startedState.ballPosition.x,
+      );
+    }
+  });
+
+  it("reverses home attacking direction in the second half", () => {
+    const firstHalfState = createStartedMatch(12345);
+
+    const secondHalfState = {
+      ...firstHalfState,
+      phase: "second-half" as const,
+      elapsedSeconds: 2700,
+      ballPosition: { x: 52.5, y: 34 },
+    };
+
+    const nextState = makePass(secondHalfState, "home-player-10");
+    const passEvent = nextState.events[1];
+
+    if (passEvent?.outcome === "successful") {
+      expect(nextState.ballPosition.x).toBeLessThan(
+        secondHalfState.ballPosition.x,
+      );
+    }
   });
 });
 

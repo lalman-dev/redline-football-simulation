@@ -2,8 +2,13 @@ import type { MatchState } from "./match-state.js";
 import { startMatch, startSecondHalf } from "./match.js";
 import { executeNextAction, executeDefensiveAction } from "./simulation.js";
 import { recordPhaseEvent } from "./phase-events.js";
+import { createRng } from "./rng.js";
 
 export const DEFAULT_MAX_ACTIONS = 5000;
+
+// A defensive challenge is attempted on roughly 1 in 4
+// attacking actions that retain possession.
+const DEFENSIVE_PRESSURE_PROBABILITY = 0.25;
 
 export interface SimulateMatchOptions {
   readonly kickoffTeamId: string;
@@ -38,17 +43,29 @@ export function simulateMatch(
       state = executeNextAction(state);
       actionsUsed += 1;
 
-      // The action may have ended the half.
       if (state.phase !== phase) {
         break;
       }
 
-      // If possession changed, the new attacking team gets the next action.
+      // Only consider defensive pressure when the attacking team
+      // retains possession after its action.
       if (state.possessionTeamId !== possessionBeforeAction) {
         continue;
       }
 
-      // If possession stayed with the attacking team, allow a defensive response.
+      const pressureRng = createRng(state.rngState);
+      const shouldApplyPressure =
+        pressureRng.next() < DEFENSIVE_PRESSURE_PROBABILITY;
+
+      state = {
+        ...state,
+        rngState: pressureRng.getState(),
+      };
+
+      if (!shouldApplyPressure) {
+        continue;
+      }
+
       if (actionsUsed >= maxActions) {
         throw new Error("Maximum simulation actions exceeded.");
       }
