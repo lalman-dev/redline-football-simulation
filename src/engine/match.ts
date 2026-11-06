@@ -5,6 +5,7 @@ import type { MatchEvent } from "./match-types.js";
 import { createRng } from "./rng.js";
 import { validateTeamSelection } from "./validation.js";
 import { getMatchMinute } from "./clock.js";
+import { capActionDuration, getClockTransition } from "./match-clock.js";
 
 export interface CreateMatchOptions {
   readonly homeTeam: Team;
@@ -173,9 +174,10 @@ export function makePass(state: MatchState, receiverId: string): MatchState {
   const rng = createRng(state.rngState);
   const successful = rng.next() < probability;
 
-  const duration = 2 + Math.floor(rng.next() * 4);
+  const proposedDuration = 2 + Math.floor(rng.next() * 4);
+  const duration = capActionDuration(state.elapsedSeconds, proposedDuration);
   const elapsedSeconds = state.elapsedSeconds + duration;
-
+  const clock = getClockTransition(elapsedSeconds);
   const interceptor = successful
     ? undefined
     : defenders.reduce((best, player) =>
@@ -201,6 +203,7 @@ export function makePass(state: MatchState, receiverId: string): MatchState {
 
   return {
     ...state,
+    phase: clock.phase,
     elapsedSeconds,
     possessionTeamId: successful ? team.id : opposition.id,
     ballCarrierId: successful ? receiver.id : (interceptor?.id ?? null),
@@ -264,8 +267,10 @@ export function makeTackle(state: MatchState, tacklerId: string): MatchState {
   const rng = createRng(state.rngState);
   const successful = rng.next() < probability;
 
-  const duration = 2 + Math.floor(rng.next() * 4);
+  const proposedDuration = 2 + Math.floor(rng.next() * 4);
+  const duration = capActionDuration(state.elapsedSeconds, proposedDuration);
   const elapsedSeconds = state.elapsedSeconds + duration;
+  const clock = getClockTransition(elapsedSeconds);
 
   const nextEvent = {
     id: state.events.length + 1,
@@ -283,6 +288,7 @@ export function makeTackle(state: MatchState, tacklerId: string): MatchState {
 
   return {
     ...state,
+    phase: clock.phase,
     elapsedSeconds,
     possessionTeamId: successful ? defendingTeam.id : attackingTeam.id,
     ballCarrierId: successful ? tackler.id : carrier.id,
@@ -357,8 +363,10 @@ export function makeShot(state: MatchState): MatchState {
 
   const outcome = !onTarget ? "off-target" : saved ? "saved" : "goal";
 
-  const duration = 3 + Math.floor(rng.next() * 5);
+  const proposedDuration = 3 + Math.floor(rng.next() * 5);
+  const duration = capActionDuration(state.elapsedSeconds, proposedDuration);
   const elapsedSeconds = state.elapsedSeconds + duration;
+  const clock = getClockTransition(elapsedSeconds);
 
   const nextEvents: MatchEvent[] = [
     {
@@ -407,6 +415,7 @@ export function makeShot(state: MatchState): MatchState {
   return {
     ...state,
     elapsedSeconds,
+    phase: clock.phase,
     score: {
       home: state.score.home + (goal && isHome ? 1 : 0),
       away: state.score.away + (goal && !isHome ? 1 : 0),

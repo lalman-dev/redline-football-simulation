@@ -379,3 +379,81 @@ describe("makeShot", () => {
     expect(first).toEqual(second);
   });
 });
+
+describe("match clock boundaries", () => {
+  it("ends the first half when a pass reaches 45 minutes", () => {
+    const homeTeam = createTeam("home");
+    const awayTeam = createTeam("away");
+
+    const state = createMatchState({
+      homeTeam,
+      awayTeam,
+      homeSelection: createSelection(homeTeam),
+      awaySelection: createSelection(awayTeam),
+      seed: 12345,
+    });
+
+    const startedState = startMatch(state, homeTeam.id);
+
+    const nearHalfTime = {
+      ...startedState,
+      elapsedSeconds: 2698,
+    };
+
+    const nextState = makePass(nearHalfTime, "home-player-6");
+
+    expect(nextState.elapsedSeconds).toBe(2700);
+    expect(nextState.phase).toBe("half-time");
+  });
+
+  it("ends the first half when a tackle reaches 45 minutes", () => {
+    const homeTeam = createTeam("home");
+    const awayTeam = createTeam("away");
+
+    const state = createMatchState({
+      homeTeam,
+      awayTeam,
+      homeSelection: createSelection(homeTeam),
+      awaySelection: createSelection(awayTeam),
+      seed: 12345,
+    });
+
+    const startedState = startMatch(state, homeTeam.id);
+
+    const nearHalfTime = {
+      ...startedState,
+      elapsedSeconds: 2698,
+    };
+
+    const nextState = makeTackle(nearHalfTime, "away-player-2");
+
+    expect(nextState.elapsedSeconds).toBe(2700);
+    expect(nextState.phase).toBe("half-time");
+  });
+
+  it("ends the match when a shot reaches 90 minutes", () => {
+    const homeTeam = createTeam("home");
+    const awayTeam = createTeam("away");
+
+    const state = createMatchState({
+      homeTeam,
+      awayTeam,
+      homeSelection: createSelection(homeTeam),
+      awaySelection: createSelection(awayTeam),
+      seed: 12345,
+    });
+
+    const startedState = startMatch(state, homeTeam.id);
+
+    const nearFullTime = {
+      ...startedState,
+      phase: "second-half" as const,
+      elapsedSeconds: 5398,
+    };
+
+    const nextState = makeShot(nearFullTime);
+
+    expect(nextState.elapsedSeconds).toBe(5400);
+    expect(nextState.phase).toBe("full-time");
+  });
+});
