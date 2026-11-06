@@ -14,6 +14,7 @@ export type MatchEventType =
   | "shot"
   | "save"
   | "goal"
+  | "substitution"
   | "half-time"
   | "full-time";
 

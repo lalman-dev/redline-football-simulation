@@ -7,6 +7,7 @@ import {
   makeShot,
   startMatch,
   startSecondHalf,
+  substitutePlayer,
 } from "../match.js";
 import type { Player, Team, TeamSelection } from "../types.js";
 
@@ -623,5 +624,225 @@ describe("match clock boundaries", () => {
 
     expect(nextState.elapsedSeconds).toBe(5400);
     expect(nextState.phase).toBe("full-time");
+  });
+});
+describe("substitutePlayer", () => {
+  const homeTeam = createTeam("home");
+  const awayTeam = createTeam("away");
+
+  function createStartedState() {
+    const state = createMatchState({
+      homeTeam,
+      awayTeam,
+      homeSelection: createSelection(homeTeam),
+      awaySelection: createSelection(awayTeam),
+      seed: 12345,
+    });
+
+    return startMatch(state, homeTeam.id);
+  }
+
+  it("replaces an active player with an eligible substitute", () => {
+    const state = createStartedState();
+
+    const nextState = substitutePlayer(
+      state,
+      homeTeam.id,
+      "home-player-10",
+      "home-player-16",
+    );
+
+    expect(nextState.homeSelection.startingXI).toContain("home-player-16");
+    expect(nextState.homeSelection.startingXI).not.toContain("home-player-10");
+    expect(nextState.homeSelection.substitutes).not.toContain("home-player-16");
+  });
+
+  it("records the substitution in the event log", () => {
+    const state = createStartedState();
+
+    const nextState = substitutePlayer(
+      state,
+      homeTeam.id,
+      "home-player-10",
+      "home-player-16",
+    );
+
+    const event = nextState.events.at(-1);
+
+    expect(event?.type).toBe("substitution");
+    expect(event?.playerId).toBe("home-player-16");
+    expect(event?.targetPlayerId).toBe("home-player-10");
+  });
+
+  it("increments the correct team's substitution count", () => {
+    const state = createStartedState();
+
+    const nextState = substitutePlayer(
+      state,
+      homeTeam.id,
+      "home-player-10",
+      "home-player-16",
+    );
+
+    expect(nextState.substitutionsUsed.home).toBe(1);
+    expect(nextState.substitutionsUsed.away).toBe(0);
+  });
+
+  it("rejects a player who is not on the pitch", () => {
+    const state = createStartedState();
+
+    expect(() =>
+      substitutePlayer(state, homeTeam.id, "home-player-16", "home-player-15"),
+    ).toThrow("Outgoing player must be on the pitch.");
+  });
+
+  it("rejects an incoming player who is not a substitute", () => {
+    const state = createStartedState();
+
+    expect(() =>
+      substitutePlayer(state, homeTeam.id, "home-player-10", "home-player-9"),
+    ).toThrow("Incoming player must be an eligible substitute.");
+  });
+
+  it("rejects a team outside the match", () => {
+    const state = createStartedState();
+
+    expect(() =>
+      substitutePlayer(
+        state,
+        "unknown-team",
+        "home-player-10",
+        "home-player-16",
+      ),
+    ).toThrow("Team must belong to this match.");
+  });
+
+  it("rejects substitutions after full-time", () => {
+    const state = {
+      ...createStartedState(),
+      phase: "full-time" as const,
+    };
+
+    expect(() =>
+      substitutePlayer(state, homeTeam.id, "home-player-10", "home-player-16"),
+    ).toThrow("Substitutions are only allowed during a match.");
+  });
+
+  it("updates the ball carrier if that player is substituted", () => {
+    const state = createStartedState();
+
+    const nextState = substitutePlayer(
+      state,
+      homeTeam.id,
+      "home-player-11",
+      "home-player-16",
+    );
+
+    expect(nextState.ballCarrierId).toBe("home-player-16");
+  });
+
+  it("allows substitutions at half-time without using an opportunity", () => {
+    const state = {
+      ...createStartedState(),
+      phase: "half-time" as const,
+      elapsedSeconds: 2700,
+    };
+
+    const nextState = substitutePlayer(
+      state,
+      homeTeam.id,
+      "home-player-10",
+      "home-player-16",
+    );
+
+    expect(nextState.substitutionsUsed.home).toBe(1);
+    expect(nextState.substitutionWindowsUsed.home).toBe(0);
+  });
+
+  it("counts multiple substitutions in the same window as one opportunity", () => {
+    const state = createStartedState();
+
+    const first = substitutePlayer(
+      state,
+      homeTeam.id,
+      "home-player-10",
+      "home-player-16",
+      "window-1",
+    );
+
+    const second = substitutePlayer(
+      first,
+      homeTeam.id,
+      "home-player-9",
+      "home-player-15",
+      "window-1",
+    );
+
+    expect(second.substitutionsUsed.home).toBe(2);
+    expect(second.substitutionWindowsUsed.home).toBe(1);
+  });
+
+  it("rejects a fourth substitution opportunity", () => {
+    let state = createStartedState();
+
+    const substitutions = [
+      ["home-player-10", "home-player-16"],
+      ["home-player-9", "home-player-15"],
+      ["home-player-8", "home-player-14"],
+    ] as const;
+
+    substitutions.forEach(([outgoing, incoming], index) => {
+      state = substitutePlayer(
+        state,
+        homeTeam.id,
+        outgoing,
+        incoming,
+        `window-${index + 1}`,
+      );
+    });
+
+    expect(() =>
+      substitutePlayer(
+        state,
+        homeTeam.id,
+        "home-player-7",
+        "home-player-13",
+        "window-4",
+      ),
+    ).toThrow("Maximum of three substitution opportunities reached.");
+  });
+
+  it("rejects a sixth substitution", () => {
+    const state = {
+      ...createStartedState(),
+      substitutionsUsed: {
+        home: 5,
+        away: 0,
+      },
+    };
+
+    expect(() =>
+      substitutePlayer(
+        state,
+        homeTeam.id,
+        "home-player-5",
+        "home-player-16",
+        "window-3",
+      ),
+    ).toThrow("Maximum of five substitutions reached.");
+  });
+
+  it("rejects a substitution that leaves no goalkeeper on the pitch", () => {
+    const state = createStartedState();
+
+    expect(() =>
+      substitutePlayer(
+        state,
+        homeTeam.id,
+        "home-player-1",
+        "home-player-16",
+        "window-1",
+      ),
+    ).toThrow("A substitution must leave exactly one goalkeeper on the pitch.");
   });
 });

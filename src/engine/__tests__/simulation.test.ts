@@ -95,6 +95,16 @@ function createState(seed = 12345): MatchState {
     ballPosition: { x: 52.5, y: 34 },
     events: [],
     rngState: seed,
+    substitutionsUsed: {
+      home: 0,
+      away: 0,
+    },
+    substitutedOffPlayers: {
+      home: [],
+      away: [],
+    },
+    substitutionWindowsUsed: { home: 0, away: 0 },
+    lastSubstitutionWindow: { home: null, away: null },
   };
 }
 

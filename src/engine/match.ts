@@ -1,4 +1,4 @@
-import type { Team, TeamSelection } from "./types.js";
+import type { Team, TeamSelection, TeamId } from "./types.js";
 import type { MatchState } from "./match-state.js";
 import type { MatchEvent } from "./match-types.js";
 
@@ -50,6 +50,16 @@ export function createMatchState(options: CreateMatchOptions): MatchState {
     ballPosition: { x: 52.5, y: 34 },
     events: [],
     rngState: rng.getState(),
+    substitutionsUsed: {
+      home: 0,
+      away: 0,
+    },
+    substitutedOffPlayers: {
+      home: [],
+      away: [],
+    },
+    substitutionWindowsUsed: { home: 0, away: 0 },
+    lastSubstitutionWindow: { home: null, away: null },
   };
 }
 
@@ -605,5 +615,140 @@ export function makeShot(state: MatchState): MatchState {
       saved || goal || !onTarget ? defendingGoalkeeperId : shooter.id,
     rngState: rng.getState(),
     events: [...state.events, ...nextEvents],
+  };
+}
+
+export function substitutePlayer(
+  state: MatchState,
+  teamId: TeamId,
+  outgoingPlayerId: string,
+  incomingPlayerId: string,
+  substitutionWindowId = `substitution-${state.events.length}`,
+): MatchState {
+  const isHalfTime = state.phase === "half-time";
+  const isActivePlay =
+    state.phase === "first-half" || state.phase === "second-half";
+
+  if (!isActivePlay && !isHalfTime) {
+    throw new Error("Substitutions are only allowed during a match.");
+  }
+
+  const isHome = teamId === state.homeTeam.id;
+
+  if (!isHome && teamId !== state.awayTeam.id) {
+    throw new Error("Team must belong to this match.");
+  }
+
+  const side = isHome ? "home" : "away";
+  const team = isHome ? state.homeTeam : state.awayTeam;
+  const selection = isHome ? state.homeSelection : state.awaySelection;
+
+  const substitutionsUsed = state.substitutionsUsed[side];
+  const substitutedOff = state.substitutedOffPlayers[side];
+  const windowsUsed = state.substitutionWindowsUsed[side];
+  const lastWindow = state.lastSubstitutionWindow[side];
+
+  if (substitutionsUsed >= 5) {
+    throw new Error("Maximum of five substitutions reached.");
+  }
+
+  if (!selection.startingXI.includes(outgoingPlayerId)) {
+    throw new Error("Outgoing player must be on the pitch.");
+  }
+
+  if (!selection.substitutes.includes(incomingPlayerId)) {
+    throw new Error("Incoming player must be an eligible substitute.");
+  }
+
+  if (substitutedOff.includes(outgoingPlayerId)) {
+    throw new Error("Outgoing player has already been substituted off.");
+  }
+
+  if (!isHalfTime && !substitutionWindowId.trim()) {
+    throw new Error("A substitution window ID is required.");
+  }
+
+  const outgoingPlayer = team.squad.find(
+    (player) => player.id === outgoingPlayerId,
+  );
+
+  const incomingPlayer = team.squad.find(
+    (player) => player.id === incomingPlayerId,
+  );
+
+  if (!outgoingPlayer || !incomingPlayer) {
+    throw new Error("Both players must belong to the selected team.");
+  }
+
+  const nextStartingXI = selection.startingXI.map((id) =>
+    id === outgoingPlayerId ? incomingPlayerId : id,
+  );
+
+  const goalkeeperCount = nextStartingXI.filter((id) => {
+    const player = team.squad.find((squadPlayer) => squadPlayer.id === id);
+    return player?.primaryPosition === "GK";
+  }).length;
+
+  if (goalkeeperCount !== 1) {
+    throw new Error(
+      "A substitution must leave exactly one goalkeeper on the pitch.",
+    );
+  }
+
+  const isNewWindow = !isHalfTime && substitutionWindowId !== lastWindow;
+
+  if (isNewWindow && windowsUsed >= 3) {
+    throw new Error("Maximum of three substitution opportunities reached.");
+  }
+
+  const nextSelection: TeamSelection = {
+    ...selection,
+    startingXI: nextStartingXI,
+    substitutes: selection.substitutes.filter((id) => id !== incomingPlayerId),
+  };
+
+  const event: MatchEvent = {
+    id: state.events.length + 1,
+    type: "substitution",
+    minute: getMatchMinute(state.elapsedSeconds),
+    elapsedSeconds: state.elapsedSeconds,
+    teamId,
+    playerId: incomingPlayerId,
+    targetPlayerId: outgoingPlayerId,
+    description: `${incomingPlayer.name} replaces ${outgoingPlayer.name} for ${team.name}.`,
+  };
+
+  return {
+    ...state,
+
+    homeSelection: isHome ? nextSelection : state.homeSelection,
+    awaySelection: isHome ? state.awaySelection : nextSelection,
+
+    substitutionsUsed: {
+      ...state.substitutionsUsed,
+      [side]: substitutionsUsed + 1,
+    },
+
+    substitutedOffPlayers: {
+      ...state.substitutedOffPlayers,
+      [side]: [...substitutedOff, outgoingPlayerId],
+    },
+
+    substitutionWindowsUsed: {
+      ...state.substitutionWindowsUsed,
+      [side]: windowsUsed + (isNewWindow ? 1 : 0),
+    },
+
+    lastSubstitutionWindow: {
+      ...state.lastSubstitutionWindow,
+      [side]: isHalfTime ? lastWindow : substitutionWindowId,
+    },
+
+    ballCarrierId:
+      state.ballCarrierId === outgoingPlayerId
+        ? incomingPlayerId
+        : state.ballCarrierId,
+
+    events: [...state.events, event],
   };
 }

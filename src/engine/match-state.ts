@@ -13,6 +13,16 @@ export interface PitchPosition {
   readonly y: number;
 }
 
+export interface SubstitutionRecord {
+  readonly home: number;
+  readonly away: number;
+}
+
+export interface SubstitutedOffPlayers {
+  readonly home: readonly PlayerId[];
+  readonly away: readonly PlayerId[];
+}
+
 export interface MatchState {
   readonly homeTeam: Team;
   readonly awayTeam: Team;
@@ -34,4 +44,20 @@ export interface MatchState {
 
   // Stored so a saved match can continue deterministically.
   readonly rngState: number;
+
+  readonly substitutionsUsed: SubstitutionRecord;
+  readonly substitutedOffPlayers: SubstitutedOffPlayers;
+
+  readonly substitutionWindowsUsed: SubstitutionWindowRecord;
+  readonly lastSubstitutionWindow: LastSubstitutionWindow;
+}
+
+export interface SubstitutionWindowRecord {
+  readonly home: number;
+  readonly away: number;
+}
+
+export interface LastSubstitutionWindow {
+  readonly home: string | null;
+  readonly away: string | null;
 }
