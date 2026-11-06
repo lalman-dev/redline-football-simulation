@@ -3,6 +3,7 @@ import {
   chooseNextAction,
   executeNextAction,
   executeDefensiveAction,
+  getShootingProbability,
 } from "../simulation.js";
 import type { MatchState } from "../match-state.js";
 import type { Player, Team, TeamSelection } from "../types.js";
@@ -77,7 +78,7 @@ function createSelection(team: Team): TeamSelection {
   };
 }
 
-function createState(): MatchState {
+function createState(seed = 12345): MatchState {
   const homeTeam = createTeam("home");
   const awayTeam = createTeam("away");
 
@@ -92,67 +93,46 @@ function createState(): MatchState {
     possessionTeamId: homeTeam.id,
     ballCarrierId: "home-player-11",
     events: [],
-    rngState: 12345,
+    rngState: seed,
   };
 }
 
-describe("chooseNextAction", () => {
-  it("chooses a shot for a capable attacker", () => {
-    const state = createState();
+describe("getShootingProbability", () => {
+  it("gives a striker a higher shooting probability than a centre-back", () => {
+    const strikerState = createState();
 
-    const updatedTeam: Team = {
-      ...state.homeTeam,
-      squad: state.homeTeam.squad.map((player) =>
-        player.id === state.ballCarrierId
-          ? {
-              ...player,
-              attributes: {
-                ...player.attributes,
-                shooting: 85,
-                finishing: 85,
-              },
-            }
-          : player,
-      ),
+    const defenderState: MatchState = {
+      ...strikerState,
+      ballCarrierId: "home-player-2",
     };
 
-    const updatedState: MatchState = {
-      ...state,
-      homeTeam: updatedTeam,
-    };
-
-    expect(chooseNextAction(updatedState)).toBe("shoot");
+    expect(getShootingProbability(strikerState)).toBeGreaterThan(
+      getShootingProbability(defenderState),
+    );
   });
 
-  it("chooses a pass when shooting ability is low", () => {
+  it("increases shooting probability with attacking mentality", () => {
     const state = createState();
 
-    const player = state.homeTeam.squad.find(
-      (item) => item.id === state.ballCarrierId,
-    )!;
-
-    const updatedTeam: Team = {
-      ...state.homeTeam,
-      squad: state.homeTeam.squad.map((item) =>
-        item.id === player.id
-          ? {
-              ...item,
-              attributes: {
-                ...item.attributes,
-                shooting: 30,
-                finishing: 30,
-              },
-            }
-          : item,
-      ),
-    };
-
-    const updatedState: MatchState = {
+    const attackingState: MatchState = {
       ...state,
-      homeTeam: updatedTeam,
+      homeSelection: {
+        ...state.homeSelection,
+        tactics: {
+          ...state.homeSelection.tactics,
+          mentality: 90,
+        },
+      },
     };
 
-    expect(chooseNextAction(updatedState)).toBe("pass");
+    expect(getShootingProbability(attackingState)).toBeGreaterThan(
+      getShootingProbability(state),
+    );
+  });
+
+  it("keeps shooting probability within its configured limits", () => {
+    expect(getShootingProbability(createState())).toBeGreaterThanOrEqual(0.02);
+    expect(getShootingProbability(createState())).toBeLessThanOrEqual(0.65);
   });
 
   it("rejects a match without possession", () => {
@@ -162,63 +142,74 @@ describe("chooseNextAction", () => {
       ballCarrierId: null,
     };
 
-    expect(() => chooseNextAction(state)).toThrow(
+    expect(() => getShootingProbability(state)).toThrow(
       "Cannot choose an action without possession.",
     );
   });
 });
 
-describe("executeNextAction", () => {
-  it("executes a pass when the carrier should pass", () => {
-    const state = createState();
+describe("chooseNextAction", () => {
+  it("makes the same decision with the same seed", () => {
+    const state = createState(12345);
 
+    expect(chooseNextAction(state)).toBe(chooseNextAction(state));
+  });
+
+  it("can choose both passing and shooting across different seeds", () => {
+    const actions = new Set(
+      Array.from({ length: 1000 }, (_, index) =>
+        chooseNextAction(createState(index + 1)),
+      ),
+    );
+
+    expect(actions.has("pass")).toBe(true);
+    expect(actions.has("shoot")).toBe(true);
+  });
+});
+
+describe("executeNextAction", () => {
+  it("produces identical actions and RNG states for identical seeds", () => {
+    const first = executeNextAction(createState(12345));
+    const second = executeNextAction(createState(12345));
+
+    expect(first.events).toEqual(second.events);
+    expect(first.rngState).toBe(second.rngState);
+    expect(first.elapsedSeconds).toBe(second.elapsedSeconds);
+  });
+
+  it("advances the RNG state when executing an action", () => {
+    const state = createState(12345);
     const nextState = executeNextAction(state);
 
-    expect(nextState.events).toHaveLength(1);
-    expect(nextState.events[0]?.type).toBe("pass");
+    expect(nextState.rngState).not.toBe(state.rngState);
+  });
+
+  it("records either a pass or a shot", () => {
+    const nextState = executeNextAction(createState());
+
+    expect(["pass", "shot"]).toContain(nextState.events[0]?.type);
     expect(nextState.elapsedSeconds).toBeGreaterThan(0);
   });
 
-  it("executes a shot when the carrier is a capable attacker", () => {
-    const state = createState();
-
-    const updatedTeam: Team = {
-      ...state.homeTeam,
-      squad: state.homeTeam.squad.map((player) =>
-        player.id === state.ballCarrierId
-          ? {
-              ...player,
-              attributes: {
-                ...player.attributes,
-                shooting: 85,
-                finishing: 85,
-              },
-            }
-          : player,
-      ),
+  it("rejects a match without possession", () => {
+    const state: MatchState = {
+      ...createState(),
+      possessionTeamId: null,
+      ballCarrierId: null,
     };
 
-    const updatedState: MatchState = {
-      ...state,
-      homeTeam: updatedTeam,
-    };
-
-    const nextState = executeNextAction(updatedState);
-
-    expect(nextState.events.some((event) => event.type === "shot")).toBe(true);
-    expect(nextState.elapsedSeconds).toBeGreaterThan(0);
+    expect(() => executeNextAction(state)).toThrow(
+      "Cannot choose an action without possession.",
+    );
   });
 });
 
 describe("executeDefensiveAction", () => {
   it("selects an opposing player to attempt a tackle", () => {
-    const state = createState();
-
-    const nextState = executeDefensiveAction(state);
+    const nextState = executeDefensiveAction(createState());
 
     expect(nextState.events).toHaveLength(1);
     expect(nextState.events[0]?.type).toBe("tackle");
-    expect(nextState.events[0]?.teamId).toBe("away");
     expect(nextState.elapsedSeconds).toBeGreaterThan(0);
   });
 

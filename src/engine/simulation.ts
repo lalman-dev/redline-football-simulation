@@ -1,64 +1,142 @@
 import type { MatchState } from "./match-state.js";
+import type { Player } from "./types.js";
+import { createRng } from "./rng.js";
 import { makePass, makeShot, makeTackle } from "./match.js";
 
 export type SimulationAction = "pass" | "tackle" | "shoot";
 
-export function chooseNextAction(state: MatchState): SimulationAction {
+interface ActionDecision {
+  readonly action: SimulationAction;
+  readonly rngState: number;
+}
+
+function getActiveCarrier(state: MatchState): {
+  player: Player;
+  mentality: number;
+  tempo: number;
+} {
   if (!state.possessionTeamId || !state.ballCarrierId) {
     throw new Error("Cannot choose an action without possession.");
   }
 
   const isHome = state.possessionTeamId === state.homeTeam.id;
-
   const attackingTeam = isHome ? state.homeTeam : state.awayTeam;
   const selection = isHome ? state.homeSelection : state.awaySelection;
 
-  const carrier = attackingTeam.squad.find(
-    (player) => player.id === state.ballCarrierId,
+  const player = attackingTeam.squad.find(
+    (candidate) => candidate.id === state.ballCarrierId,
   );
 
-  if (!carrier || !selection.startingXI.includes(carrier.id)) {
+  if (!player || !selection.startingXI.includes(player.id)) {
     throw new Error("Ball carrier must be an active player.");
   }
 
-  const shootingScore =
-    carrier.attributes.shooting + carrier.attributes.finishing;
+  return {
+    player,
+    mentality: selection.tactics.mentality,
+    tempo: selection.tactics.tempo,
+  };
+}
 
-  const decisionScore = carrier.attributes.decisionMaking;
-
-  if (shootingScore >= 150 && decisionScore >= 60) {
-    return "shoot";
+function getPositionModifier(position: Player["primaryPosition"]): number {
+  switch (position) {
+    case "ST":
+      return 0.1;
+    case "LW":
+    case "RW":
+      return 0.07;
+    case "AM":
+      return 0.06;
+    case "CM":
+      return 0.01;
+    case "DM":
+      return -0.02;
+    case "CB":
+    case "LB":
+    case "RB":
+      return -0.05;
+    case "GK":
+      return -0.2;
   }
+}
 
-  return "pass";
+export function getShootingProbability(state: MatchState): number {
+  const { player, mentality, tempo } = getActiveCarrier(state);
+  const attributes = player.attributes;
+
+  const shootingQuality = (attributes.shooting + attributes.finishing) / 200;
+
+  const decisionQuality = attributes.decisionMaking / 100;
+
+  const mentalityModifier = (mentality - 50) * 0.0015;
+  const tempoModifier = (tempo - 50) * 0.0005;
+
+  const probability =
+    0.03 +
+    shootingQuality * 0.12 +
+    decisionQuality * 0.04 +
+    getPositionModifier(player.primaryPosition) +
+    mentalityModifier +
+    tempoModifier;
+
+  return Math.max(0.02, Math.min(0.65, probability));
+}
+
+function decideNextAction(state: MatchState): ActionDecision {
+  const rng = createRng(state.rngState);
+  const shootingProbability = getShootingProbability(state);
+
+  const action: SimulationAction =
+    rng.next() < shootingProbability ? "shoot" : "pass";
+
+  return {
+    action,
+    rngState: rng.getState(),
+  };
+}
+
+export function chooseNextAction(state: MatchState): SimulationAction {
+  return decideNextAction(state).action;
 }
 
 export function executeNextAction(state: MatchState): MatchState {
-  const action = chooseNextAction(state);
+  const decision = decideNextAction(state);
 
-  if (action === "shoot") {
-    return makeShot(state);
+  // Carry the random state forward so the selected action
+  // continues the same deterministic random sequence.
+  const actionState: MatchState = {
+    ...state,
+    rngState: decision.rngState,
+  };
+
+  if (decision.action === "shoot") {
+    return makeShot(actionState);
   }
 
   const isHome = state.possessionTeamId === state.homeTeam.id;
-
   const attackingTeam = isHome ? state.homeTeam : state.awayTeam;
   const selection = isHome ? state.homeSelection : state.awaySelection;
 
   const receiver = selection.startingXI
     .map((id) => attackingTeam.squad.find((player) => player.id === id))
-    .find(
-      (player) =>
+    .filter(
+      (player): player is Player =>
         player !== undefined &&
         player.id !== state.ballCarrierId &&
         player.primaryPosition !== "GK",
-    );
+    )
+    .sort(
+      (a, b) =>
+        b.attributes.passing +
+        b.attributes.positioning -
+        (a.attributes.passing + a.attributes.positioning),
+    )[0];
 
   if (!receiver) {
     throw new Error("No eligible teammate available to receive a pass.");
   }
 
-  return makePass(state, receiver.id);
+  return makePass(actionState, receiver.id);
 }
 
 export function executeDefensiveAction(state: MatchState): MatchState {
@@ -78,7 +156,16 @@ export function executeDefensiveAction(state: MatchState): MatchState {
 
   const tackler = defendingSelection.startingXI
     .map((id) => defendingTeam.squad.find((player) => player.id === id))
-    .find((player) => player !== undefined && player.primaryPosition !== "GK");
+    .filter(
+      (player): player is Player =>
+        player !== undefined && player.primaryPosition !== "GK",
+    )
+    .sort(
+      (a, b) =>
+        b.attributes.tackling +
+        b.attributes.positioning -
+        (a.attributes.tackling + a.attributes.positioning),
+    )[0];
 
   if (!tackler) {
     throw new Error("No eligible defender available to tackle.");
