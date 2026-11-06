@@ -54,6 +54,10 @@ describe("getRemainingPhaseSeconds", () => {
     expect(getRemainingPhaseSeconds(2700)).toBe(0);
     expect(getRemainingPhaseSeconds(5400)).toBe(0);
   });
+
+  it("allows the second half to advance from 45 minutes", () => {
+    expect(getRemainingPhaseSeconds(2700, "second-half")).toBe(2700);
+  });
 });
 
 describe("capActionDuration", () => {
@@ -77,5 +81,9 @@ describe("capActionDuration", () => {
   it("rejects invalid durations", () => {
     expect(() => capActionDuration(100, 0)).toThrow(RangeError);
     expect(() => capActionDuration(100, 1.5)).toThrow(RangeError);
+  });
+
+  it("allows actions immediately after the second-half kickoff", () => {
+    expect(capActionDuration(2700, 5, "second-half")).toBe(5);
   });
 });

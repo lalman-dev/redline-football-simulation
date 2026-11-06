@@ -40,7 +40,21 @@ export function getClockTransition(elapsedSeconds: number): ClockTransition {
   };
 }
 
-export function getRemainingPhaseSeconds(elapsedSeconds: number): number {
+export function getRemainingPhaseSeconds(
+  elapsedSeconds: number,
+  phase?: MatchPhase,
+): number {
+  // Validate elapsed time.
+  getClockTransition(elapsedSeconds);
+
+  if (phase === "second-half") {
+    return Math.max(0, FULL_TIME_SECONDS - elapsedSeconds);
+  }
+
+  if (phase === "first-half") {
+    return Math.max(0, HALF_DURATION_SECONDS - elapsedSeconds);
+  }
+
   const transition = getClockTransition(elapsedSeconds);
 
   if (transition.phase === "first-half") {
@@ -57,12 +71,13 @@ export function getRemainingPhaseSeconds(elapsedSeconds: number): number {
 export function capActionDuration(
   elapsedSeconds: number,
   proposedDuration: number,
+  phase?: MatchPhase,
 ): number {
   if (!Number.isInteger(proposedDuration) || proposedDuration < 1) {
     throw new RangeError("Action duration must be a positive integer.");
   }
 
-  const remaining = getRemainingPhaseSeconds(elapsedSeconds);
+  const remaining = getRemainingPhaseSeconds(elapsedSeconds, phase);
 
   if (remaining === 0) {
     return 0;

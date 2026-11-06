@@ -5,6 +5,7 @@ import {
   makeTackle,
   makeShot,
   startMatch,
+  startSecondHalf,
 } from "../match.js";
 import type { Player, Team, TeamSelection } from "../types.js";
 
@@ -179,6 +180,52 @@ describe("startMatch", () => {
 
     expect(() => startMatch(started, awayTeam.id)).toThrow(
       "Match has already started.",
+    );
+  });
+});
+
+describe("startSecondHalf", () => {
+  const homeTeam = createTeam("home");
+  const awayTeam = createTeam("away");
+
+  const initialState = createMatchState({
+    homeTeam,
+    awayTeam,
+    homeSelection: createSelection(homeTeam),
+    awaySelection: createSelection(awayTeam),
+    seed: 12345,
+  });
+
+  const halfTimeState = {
+    ...startMatch(initialState, homeTeam.id),
+    phase: "half-time" as const,
+    elapsedSeconds: 2700,
+    score: { home: 1, away: 0 },
+  };
+
+  it("starts the second half and preserves match history", () => {
+    const match = startSecondHalf(halfTimeState, awayTeam.id);
+
+    expect(match.phase).toBe("second-half");
+    expect(match.elapsedSeconds).toBe(2700);
+    expect(match.score).toEqual({ home: 1, away: 0 });
+    expect(match.possessionTeamId).toBe(awayTeam.id);
+    expect(match.ballCarrierId).toBe("away-player-11");
+    expect(match.events).toHaveLength(2);
+    expect(match.events[1]?.minute).toBe(45);
+    expect(match.events[1]?.elapsedSeconds).toBe(2700);
+    expect(match.events[1]?.description).toContain("second half");
+  });
+
+  it("rejects a kickoff before half-time", () => {
+    expect(() => startSecondHalf(initialState, awayTeam.id)).toThrow(
+      "Second half can only start at half-time.",
+    );
+  });
+
+  it("rejects a team outside the match", () => {
+    expect(() => startSecondHalf(halfTimeState, "unknown-team")).toThrow(
+      "Kickoff team must be one of the match teams.",
     );
   });
 });

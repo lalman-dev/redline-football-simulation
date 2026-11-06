@@ -108,6 +108,64 @@ export function startMatch(
   };
 }
 
+export function startSecondHalf(
+  state: MatchState,
+  kickoffTeamId: string,
+): MatchState {
+  if (state.phase !== "half-time" || state.elapsedSeconds !== 2700) {
+    throw new Error("Second half can only start at half-time.");
+  }
+
+  const team =
+    kickoffTeamId === state.homeTeam.id
+      ? state.homeTeam
+      : kickoffTeamId === state.awayTeam.id
+        ? state.awayTeam
+        : null;
+
+  const selection =
+    kickoffTeamId === state.homeTeam.id
+      ? state.homeSelection
+      : kickoffTeamId === state.awayTeam.id
+        ? state.awaySelection
+        : null;
+
+  if (!team || !selection) {
+    throw new Error("Kickoff team must be one of the match teams.");
+  }
+
+  const startingPlayers = selection.startingXI
+    .map((id) => team.squad.find((player) => player.id === id))
+    .filter((player) => player !== undefined);
+
+  const kickoffPlayer =
+    startingPlayers.find((player) => player.primaryPosition === "ST") ??
+    startingPlayers.find((player) => player.primaryPosition !== "GK");
+
+  if (!kickoffPlayer) {
+    throw new Error("No eligible player found to take kickoff.");
+  }
+
+  return {
+    ...state,
+    phase: "second-half",
+    possessionTeamId: team.id,
+    ballCarrierId: kickoffPlayer.id,
+    events: [
+      ...state.events,
+      {
+        id: state.events.length + 1,
+        type: "kickoff",
+        minute: 45,
+        elapsedSeconds: 2700,
+        teamId: team.id,
+        playerId: kickoffPlayer.id,
+        description: `${team.name} kick off the second half.`,
+      },
+    ],
+  };
+}
+
 export function makePass(state: MatchState, receiverId: string): MatchState {
   if (state.phase !== "first-half" && state.phase !== "second-half") {
     throw new Error("Passing is only allowed during active play.");
@@ -175,7 +233,11 @@ export function makePass(state: MatchState, receiverId: string): MatchState {
   const successful = rng.next() < probability;
 
   const proposedDuration = 2 + Math.floor(rng.next() * 4);
-  const duration = capActionDuration(state.elapsedSeconds, proposedDuration);
+  const duration = capActionDuration(
+    state.elapsedSeconds,
+    proposedDuration,
+    state.phase,
+  );
   const elapsedSeconds = state.elapsedSeconds + duration;
   const clock = getClockTransition(elapsedSeconds);
   const interceptor = successful
@@ -268,7 +330,11 @@ export function makeTackle(state: MatchState, tacklerId: string): MatchState {
   const successful = rng.next() < probability;
 
   const proposedDuration = 2 + Math.floor(rng.next() * 4);
-  const duration = capActionDuration(state.elapsedSeconds, proposedDuration);
+  const duration = capActionDuration(
+    state.elapsedSeconds,
+    proposedDuration,
+    state.phase,
+  );
   const elapsedSeconds = state.elapsedSeconds + duration;
   const clock = getClockTransition(elapsedSeconds);
 
@@ -364,7 +430,11 @@ export function makeShot(state: MatchState): MatchState {
   const outcome = !onTarget ? "off-target" : saved ? "saved" : "goal";
 
   const proposedDuration = 3 + Math.floor(rng.next() * 5);
-  const duration = capActionDuration(state.elapsedSeconds, proposedDuration);
+  const duration = capActionDuration(
+    state.elapsedSeconds,
+    proposedDuration,
+    state.phase,
+  );
   const elapsedSeconds = state.elapsedSeconds + duration;
   const clock = getClockTransition(elapsedSeconds);
 

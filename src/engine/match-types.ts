@@ -21,8 +21,8 @@ export interface MatchEvent {
   readonly type: MatchEventType;
   readonly minute: number;
   readonly elapsedSeconds: number;
-  readonly teamId: TeamId;
-  readonly playerId: PlayerId;
+  readonly teamId?: TeamId;
+  readonly playerId?: PlayerId;
   readonly description: string;
   readonly targetPlayerId?: PlayerId;
   readonly interceptedByPlayerId?: PlayerId;
