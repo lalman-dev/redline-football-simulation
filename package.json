@@ -1,0 +1,12 @@
+{
+  "name": "football-match-engine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2"
+  }
+}

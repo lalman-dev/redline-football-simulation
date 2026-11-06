@@ -65,3 +65,41 @@ What we want to see in you:
 4. **A short README:** how to build, run and use the engine and its API.
 
 We will get back to you once we have reviewed your submission.
+
+
+---
+
+## Development Setup
+
+### Requirements
+
+- Node.js 22 or later
+- npm
+
+### Installation
+
+Clone the repository and install dependencies:
+
+```bash
+npm ci
+```
+
+### Build
+
+Compile the TypeScript source:
+
+```bash
+npm run build
+```
+
+The generated JavaScript files are placed in `dist/`.
+
+### Project Structure
+
+```text
+src/       TypeScript source code
+dist/      Generated JavaScript (not committed)
+```
+
+The match engine implementation and additional usage instructions
+will be documented as development progresses.
