@@ -10,6 +10,6 @@
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true
   },
-  "include": ["src/**/*.ts"],
-  "exclude": ["node_modules", "dist"]
+  "include": ["src/engine/**/*.ts", "src/calibration/**/*.ts", "src/index.ts"],
+  "exclude": ["node_modules", "dist", "src/engine/__tests__"]
 }
