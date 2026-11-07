@@ -7,6 +7,7 @@ import { validateTeamSelection } from "./validation.js";
 import { getMatchMinute } from "./clock.js";
 import { capActionDuration, getClockTransition } from "./match-clock.js";
 import { moveBall } from "./pitch.js";
+import { createMatchPlayerPositions } from "./spatial.js";
 
 export interface CreateMatchOptions {
   readonly homeTeam: Team;
@@ -48,6 +49,12 @@ export function createMatchState(options: CreateMatchOptions): MatchState {
     possessionTeamId: null,
     ballCarrierId: null,
     ballPosition: { x: 52.5, y: 34 },
+    playerPositions: createMatchPlayerPositions(
+      homeTeam,
+      awayTeam,
+      homeSelection,
+      awaySelection,
+    ),
     events: [],
     rngState: rng.getState(),
     substitutionsUsed: {
@@ -161,6 +168,13 @@ export function startSecondHalf(
   return {
     ...state,
     phase: "second-half",
+    playerPositions: createMatchPlayerPositions(
+      state.homeTeam,
+      state.awayTeam,
+      state.homeSelection,
+      state.awaySelection,
+      true,
+    ),
     possessionTeamId: team.id,
     ballCarrierId: kickoffPlayer.id,
     events: [
@@ -718,6 +732,23 @@ export function substitutePlayer(
     description: `${incomingPlayer.name} replaces ${outgoingPlayer.name} for ${team.name}.`,
   };
 
+  const { [outgoingPlayerId]: outgoingPosition, ...remainingPlayerPositions } =
+    state.playerPositions;
+
+  const incomingPosition =
+    outgoingPosition ??
+    createMatchPlayerPositions(
+      state.homeTeam,
+      state.awayTeam,
+      isHome ? nextSelection : state.homeSelection,
+      isHome ? state.awaySelection : nextSelection,
+      state.phase === "second-half",
+    )[incomingPlayerId];
+
+  if (!incomingPosition) {
+    throw new Error("Could not determine the incoming player's position.");
+  }
+
   return {
     ...state,
 
@@ -748,6 +779,11 @@ export function substitutePlayer(
       state.ballCarrierId === outgoingPlayerId
         ? incomingPlayerId
         : state.ballCarrierId,
+
+    playerPositions: {
+      ...remainingPlayerPositions,
+      ...(outgoingPosition ? { [incomingPlayerId]: outgoingPosition } : {}),
+    },
 
     events: [...state.events, event],
   };

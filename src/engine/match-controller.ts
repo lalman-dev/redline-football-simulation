@@ -11,6 +11,7 @@ import { executeNextAction, executeDefensiveAction } from "./simulation.js";
 
 import { recordPhaseEvent } from "./phase-events.js";
 import { createRng } from "./rng.js";
+import { createTeamPlayerPositions, getTeamAttacksRight } from "./spatial.js";
 
 const DEFENSIVE_PRESSURE_PROBABILITY = 0.25;
 
@@ -219,39 +220,41 @@ export function changeTeamFormation(
     );
   }
 
-  if (teamId === match.homeTeam.id) {
-    return {
-      ...controller,
-      match: {
-        ...match,
-        homeSelection: {
-          ...match.homeSelection,
-          formation: { ...formation },
-        },
-      },
-    };
+  const isHome = teamId === match.homeTeam.id;
+  const isAway = teamId === match.awayTeam.id;
+
+  if (!isHome && !isAway) {
+    throw new Error("Team must belong to this match.");
   }
 
-  if (teamId === match.awayTeam.id) {
-    return {
-      ...controller,
-      match: {
-        ...match,
-        awaySelection: {
-          ...match.awaySelection,
-          formation: { ...formation },
-        },
-      },
-    };
-  }
+  const team = isHome ? match.homeTeam : match.awayTeam;
+  const currentSelection = isHome ? match.homeSelection : match.awaySelection;
 
-  throw new Error("Team must belong to this match.");
+  const nextSelection = {
+    ...currentSelection,
+    formation: { ...formation },
+  };
+
+  const nextPositions = createTeamPlayerPositions(
+    team,
+    nextSelection,
+    getTeamAttacksRight(match, teamId),
+  );
+
+  return {
+    ...controller,
+    match: {
+      ...match,
+      homeSelection: isHome ? nextSelection : match.homeSelection,
+      awaySelection: isAway ? nextSelection : match.awaySelection,
+      playerPositions: {
+        ...match.playerPositions,
+        ...nextPositions,
+      },
+    },
+  };
 }
 
-/**
- * Makes a substitution through the manager controller.
- * Uses the existing substitution rules and event tracking.
- */
 export function makeSubstitution(
   controller: MatchController,
   teamId: TeamId,

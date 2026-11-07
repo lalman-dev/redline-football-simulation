@@ -5,6 +5,7 @@ export interface MatchScore {
   readonly home: number;
   readonly away: number;
 }
+
 export interface PitchPosition {
   // Lengthwise position in metres: 0 to 105.
   readonly x: number;
@@ -37,8 +38,10 @@ export interface MatchState {
   readonly possessionTeamId: TeamId | null;
   readonly ballCarrierId: PlayerId | null;
 
-  // Current ball location on the pitch.
   readonly ballPosition: PitchPosition;
+
+  // Current coordinates for every active player on the pitch.
+  readonly playerPositions: Readonly<Record<PlayerId, PitchPosition>>;
 
   readonly events: readonly MatchEvent[];
 
@@ -48,8 +51,11 @@ export interface MatchState {
   readonly substitutionsUsed: SubstitutionRecord;
   readonly substitutedOffPlayers: SubstitutedOffPlayers;
 
-  readonly substitutionWindowsUsed: SubstitutionWindowRecord;
-  readonly lastSubstitutionWindow: LastSubstitutionWindow;
+  readonly substitutionWindowsUsed: SubstitutionRecord;
+  readonly lastSubstitutionWindow: {
+    readonly home: string | null;
+    readonly away: string | null;
+  };
 }
 
 export interface SubstitutionWindowRecord {

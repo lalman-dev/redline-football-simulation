@@ -7,6 +7,7 @@ import {
 } from "../simulation.js";
 import type { MatchState } from "../match-state.js";
 import type { Player, Team, TeamSelection } from "../types.js";
+import { createMatchPlayerPositions } from "../spatial.js";
 
 const attributes = {
   passing: 70,
@@ -82,17 +83,26 @@ function createState(seed = 12345): MatchState {
   const homeTeam = createTeam("home");
   const awayTeam = createTeam("away");
 
+  const homeSelection = createSelection(homeTeam);
+  const awaySelection = createSelection(awayTeam);
+
   return {
     homeTeam,
     awayTeam,
-    homeSelection: createSelection(homeTeam),
-    awaySelection: createSelection(awayTeam),
+    homeSelection,
+    awaySelection,
     phase: "first-half",
     elapsedSeconds: 0,
     score: { home: 0, away: 0 },
     possessionTeamId: homeTeam.id,
     ballCarrierId: "home-player-11",
     ballPosition: { x: 52.5, y: 34 },
+    playerPositions: createMatchPlayerPositions(
+      homeTeam,
+      awayTeam,
+      homeSelection,
+      awaySelection,
+    ),
     events: [],
     rngState: seed,
     substitutionsUsed: {

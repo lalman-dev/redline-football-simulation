@@ -17,3 +17,6 @@ export * from "./engine/match-clock.js";
 export * from "./engine/pitch.js";
 export * from "./engine/rng.js";
 export * from "./engine/validation.js";
+
+// Pitch positioning
+export * from "./engine/spatial.js";
