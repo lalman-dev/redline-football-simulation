@@ -1,13 +1,10 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { motion } from "framer-motion";
-
 import {
   createCalibrationSelection,
   createCalibrationTeam,
 } from "../calibration/fixtures.js";
-
 import { createMatchState } from "../engine/match.js";
-
 import {
   advanceMatch,
   createMatchController,
@@ -20,55 +17,40 @@ import {
 } from "../engine/match-controller.js";
 
 import type { MatchController } from "../engine/match-controller.js";
-
 import type { MatchEvent } from "../engine/match-types.js";
-
 import type { Formation, Player, Tactics } from "../engine/types.js";
 
 function createInitialController(): MatchController {
   const homeTeam = createCalibrationTeam("home");
-
   const awayTeam = createCalibrationTeam("away");
-
   const initialState = createMatchState({
     homeTeam,
-
     awayTeam,
-
     homeSelection: createCalibrationSelection(homeTeam),
-
     awaySelection: createCalibrationSelection(awayTeam),
-
     seed: 20261107,
   });
 
-  // A new match waits for the manager to press Play.
   return pauseMatch(createMatchController(initialState, homeTeam.id));
 }
 
 function formatClock(seconds: number): string {
   const minutes = Math.floor(seconds / 60);
-
   const remainingSeconds = Math.floor(seconds % 60);
-
   return `${String(minutes).padStart(2, "0")}:${String(remainingSeconds).padStart(2, "0")}`;
 }
 
 function getPhaseLabel(phase: MatchController["match"]["phase"]): string {
   return {
     "first-half": "FIRST HALF",
-
     "half-time": "HALF TIME",
-
     "second-half": "SECOND HALF",
-
     "full-time": "FULL TIME",
   }[phase];
 }
 
 function getPlayer(
   players: readonly Player[],
-
   playerId: string | undefined,
 ): Player | undefined {
   return players.find((player) => player.id === playerId);
@@ -79,12 +61,11 @@ function TopBar() {
     <header className="flex min-h-[76px] items-center justify-between border-b border-white/[0.07]">
       <div className="flex items-center gap-3">
         <div className="grid size-10 place-items-center rounded-xl bg-[#b5f36a] text-xl font-extrabold text-[#152010]">
-          T
+          R
         </div>
-
         <div>
-          <h1 className="text-sm font-extrabold tracking-[0.2em] text-white">
-            TOUCHLINE
+          <h1 className="text-sm font-extrabold tracking-[0.2em] text-[#b5f36a]">
+            REDLINE
           </h1>
 
           <p className="mt-1 text-[9px] tracking-[0.16em] text-[#89938a]">
@@ -193,8 +174,17 @@ function Scoreboard({ controller }: { controller: MatchController }) {
   );
 }
 
-function FootballPitch({ controller }: { controller: MatchController }) {
+function FootballPitch({
+  controller,
+  playbackSpeed,
+}: {
+  controller: MatchController;
+  playbackSpeed: number;
+}) {
   const { match } = controller;
+
+  const animationDuration = 0.9 / playbackSpeed;
+  const pulseDuration = 0.7 / playbackSpeed;
 
   const homePlayers = match.homeSelection.startingXI
     .map((id) => getPlayer(match.homeTeam.squad, id))
@@ -216,7 +206,6 @@ function FootballPitch({ controller }: { controller: MatchController }) {
     team: "home" | "away",
   ) => {
     const position = match.playerPositions[player.id];
-
     if (!position) return null;
 
     const x = toPitchX(position.x);
@@ -232,12 +221,12 @@ function FootballPitch({ controller }: { controller: MatchController }) {
         transition={{
           x: {
             type: "tween",
-            duration: 0.9,
+            duration: animationDuration,
             ease: "linear",
           },
           y: {
             type: "tween",
-            duration: 0.9,
+            duration: animationDuration,
             ease: "linear",
           },
         }}
@@ -255,18 +244,13 @@ function FootballPitch({ controller }: { controller: MatchController }) {
             strokeWidth="1.5"
             strokeDasharray="3 3"
             opacity="0.9"
-            animate={{ scale: [1, 1.12, 1] }}
+            animate={
+              controller.isPaused ? { scale: 1 } : { scale: [1, 1.12, 1] }
+            }
             transition={{
-              x: {
-                type: "tween",
-                duration: 0.35,
-                ease: "linear",
-              },
-              y: {
-                type: "tween",
-                duration: 0.35,
-                ease: "linear",
-              },
+              duration: pulseDuration,
+              ease: "easeInOut",
+              repeat: controller.isPaused ? 0 : Infinity,
             }}
           />
         )}
@@ -361,10 +345,9 @@ function FootballPitch({ controller }: { controller: MatchController }) {
           initial={false}
           animate={{ x: ballX, y: ballY }}
           transition={{
-            type: "spring",
-            stiffness: 180,
-            damping: 24,
-            mass: 0.5,
+            type: "tween",
+            duration: animationDuration,
+            ease: "linear",
           }}
         >
           <circle r="11" fill="white" opacity="0.2" />
@@ -377,31 +360,21 @@ function FootballPitch({ controller }: { controller: MatchController }) {
 
 interface MatchControlsProps {
   controller: MatchController;
-
   playbackSpeed: number;
-
   onPauseResume: () => void;
-
   onSecondHalf: () => void;
-
   onPlaybackSpeedChange: (speed: number) => void;
 }
 
 function MatchControls({
   controller,
-
   playbackSpeed,
-
   onPauseResume,
-
   onSecondHalf,
-
   onPlaybackSpeedChange,
 }: MatchControlsProps) {
   const isHalfTime = controller.match.phase === "half-time";
-
   const isFullTime = controller.match.phase === "full-time";
-
   return (
     <div className="flex flex-wrap items-center gap-3">
       <button
@@ -715,20 +688,13 @@ function ManagerPanel({
 
 function MatchStatistics({ events }: { events: readonly MatchEvent[] }) {
   const goals = events.filter((event) => event.type === "goal").length;
-
   const shots = events.filter((event) => event.type === "shot").length;
-
   const passes = events.filter((event) => event.type === "pass").length;
-
   const saves = events.filter((event) => event.type === "save").length;
-
   const stats = [
     { label: "Total Goals", value: goals, highlight: true },
-
     { label: "Shots", value: shots },
-
     { label: "Passes", value: passes },
-
     { label: "Saves", value: saves },
   ];
 
@@ -753,7 +719,6 @@ function MatchStatistics({ events }: { events: readonly MatchEvent[] }) {
             }`}
           >
             <span className="text-xs text-[#aab4a8]">{stat.label}</span>
-
             <strong
               className={`font-mono text-sm ${
                 stat.highlight ? "text-[#b5f36a]" : "text-white"
@@ -788,11 +753,8 @@ function MatchCommentary({ events }: { events: readonly MatchEvent[] }) {
           </p>
         ) : (
           [...events]
-
             .reverse()
-
             .slice(0, 15)
-
             .map((event) => (
               <article
                 key={event.id}
@@ -830,7 +792,7 @@ export default function App() {
     createInitialController,
   );
 
-  const [playbackSpeed, setPlaybackSpeed] = useState(2);
+  const [playbackSpeed, setPlaybackSpeed] = useState(1);
   const [managerError, setManagerError] = useState<string | null>(null);
   const { match } = controller;
 
@@ -885,9 +847,7 @@ export default function App() {
   }
 
   // One simulation action per tick keeps the pitch and commentary readable.
-
   // The interval is cleaned up whenever playback pauses or the half changes.
-
   useEffect(() => {
     const isPlayingPhase =
       controller.match.phase === "first-half" ||
@@ -952,7 +912,10 @@ export default function App() {
               }
             />
 
-            <FootballPitch controller={controller} />
+            <FootballPitch
+              controller={controller}
+              playbackSpeed={playbackSpeed}
+            />
 
             <div className="mt-4 flex flex-wrap items-center gap-5 text-[10px] text-[#89938a]">
               <span className="flex items-center gap-2">
@@ -1015,7 +978,7 @@ export default function App() {
         </section>
 
         <footer className="mt-8 flex flex-wrap justify-between gap-3 border-t border-white/[0.07] py-6 font-mono text-[9px] tracking-wider text-[#667064]">
-          <span>TOUCHLINE FOOTBALL ENGINE</span>
+          <span>REDLINE FOOTBALL ENGINE</span>
 
           <span>SEE THE GAME. CONTROL THE GAME.</span>
         </footer>

@@ -105,9 +105,9 @@ export function getShootingProbability(state: MatchState): number {
   let baseProbability: number;
 
   if (distance <= 8) {
-    baseProbability = 0.2;
+    baseProbability = 0.3;
   } else if (distance <= 16) {
-    baseProbability = 0.13;
+    baseProbability = 0.16;
   } else if (distance <= 25) {
     baseProbability = 0.06;
   } else if (distance <= 35) {
@@ -122,11 +122,8 @@ export function getShootingProbability(state: MatchState): number {
   const decisionQuality = player.attributes.decisionMaking / 100;
 
   const qualityMultiplier = 0.8 + shootingQuality * 0.4;
-
   const decisionMultiplier = 0.85 + decisionQuality * 0.3;
-
   const mentalityMultiplier = 0.85 + (mentality / 100) * 0.3;
-
   const tempoMultiplier = 0.95 + (tempo / 100) * 0.1;
 
   const positionMultiplier: Record<Player["primaryPosition"], number> = {
@@ -153,7 +150,7 @@ export function getShootingProbability(state: MatchState): number {
     positionMultiplier[player.primaryPosition] *
     angleFactor;
 
-  return Math.max(0, Math.min(0.35, probability));
+  return Math.max(0, Math.min(0.45, probability));
 }
 
 function decideNextAction(state: MatchState): ActionDecision {
@@ -167,7 +164,6 @@ function decideNextAction(state: MatchState): ActionDecision {
       ? 0
       : 0.15 + (player.attributes.dribbling - 50) * 0.003;
 
-  // High tempo and attacking mentality encourage more progressive carries.
   const tacticalCarryAdjustment =
     (tempo - 50) * 0.001 + (mentality - 50) * 0.0005;
 
@@ -180,9 +176,7 @@ function decideNextAction(state: MatchState): ActionDecision {
         );
 
   const roll = rng.next();
-
   let action: SimulationAction;
-
   if (roll < shootingProbability) {
     action = "shoot";
   } else if (roll < shootingProbability + carryProbability) {
