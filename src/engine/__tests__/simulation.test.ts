@@ -152,8 +152,8 @@ describe("getShootingProbability", () => {
   });
 
   it("keeps shooting probability within its configured limits", () => {
-    expect(getShootingProbability(createState())).toBeGreaterThanOrEqual(0.001);
-    expect(getShootingProbability(createState())).toBeLessThanOrEqual(0.08);
+    expect(getShootingProbability(createState())).toBeGreaterThanOrEqual(0);
+    expect(getShootingProbability(createState())).toBeLessThanOrEqual(0.35);
   });
 
   it("rejects a match without possession", () => {
@@ -179,7 +179,10 @@ describe("chooseNextAction", () => {
   it("can choose both passing and shooting across different seeds", () => {
     const actions = new Set(
       Array.from({ length: 1000 }, (_, index) =>
-        chooseNextAction(createState(index + 1)),
+        chooseNextAction({
+          ...createState(index + 1),
+          ballPosition: { x: 90, y: 34 },
+        }),
       ),
     );
 

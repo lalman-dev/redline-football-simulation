@@ -13,8 +13,6 @@ import { recordPhaseEvent } from "./phase-events.js";
 import { createRng } from "./rng.js";
 import { createTeamPlayerPositions, getTeamAttacksRight } from "./spatial.js";
 
-const DEFENSIVE_PRESSURE_PROBABILITY = 0.25;
-
 export interface MatchController {
   readonly match: MatchState;
   readonly kickoffTeamId: TeamId;
@@ -113,7 +111,16 @@ export function advanceMatch(
 
     const rng = createRng(match.rngState);
 
-    const shouldApplyPressure = rng.next() < DEFENSIVE_PRESSURE_PROBABILITY;
+    const defendingSelection =
+      possessionBeforeAction === match.homeTeam.id
+        ? match.awaySelection
+        : match.homeSelection;
+
+    const pressing = defendingSelection.tactics.pressing;
+
+    const pressureProbability = 0.12 + (pressing / 100) * 0.38;
+
+    const shouldApplyPressure = rng.next() < pressureProbability;
 
     match = {
       ...match,
@@ -270,8 +277,24 @@ export function makeSubstitution(
     substitutionWindowId,
   );
 
+  const isHome = teamId === match.homeTeam.id;
+  const team = isHome ? match.homeTeam : match.awayTeam;
+  const selection = isHome ? match.homeSelection : match.awaySelection;
+
+  const nextPositions = createTeamPlayerPositions(
+    team,
+    selection,
+    getTeamAttacksRight(match, teamId),
+  );
+
   return {
     ...controller,
-    match,
+    match: {
+      ...match,
+      playerPositions: {
+        ...match.playerPositions,
+        ...nextPositions,
+      },
+    },
   };
 }

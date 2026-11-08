@@ -7,7 +7,8 @@ import { validateTeamSelection } from "./validation.js";
 import { getMatchMinute } from "./clock.js";
 import { capActionDuration, getClockTransition } from "./match-clock.js";
 import { moveBall } from "./pitch.js";
-import { createMatchPlayerPositions } from "./spatial.js";
+import { createMatchPlayerPositions, movePlayerTowards } from "./spatial.js";
+import { applyTacticalMovement } from "./tactical-movement.js";
 
 export interface CreateMatchOptions {
   readonly homeTeam: Team;
@@ -218,7 +219,6 @@ export function makeCarry(state: MatchState): MatchState {
   }
 
   const attackingRight = state.phase === "first-half" ? isHome : !isHome;
-
   const rng = createRng(state.rngState);
 
   const skillFactor =
@@ -235,7 +235,6 @@ export function makeCarry(state: MatchState): MatchState {
   );
 
   const proposedDuration = 5 + Math.floor(rng.next() * 5);
-
   const duration = capActionDuration(
     state.elapsedSeconds,
     proposedDuration,
@@ -244,6 +243,11 @@ export function makeCarry(state: MatchState): MatchState {
 
   const elapsedSeconds = state.elapsedSeconds + duration;
   const clock = getClockTransition(elapsedSeconds);
+
+  const playerPositions = {
+    ...state.playerPositions,
+    [carrier.id]: ballPosition,
+  };
 
   const nextEvent: MatchEvent = {
     id: state.events.length + 1,
@@ -256,16 +260,17 @@ export function makeCarry(state: MatchState): MatchState {
     outcome: "successful",
   };
 
-  return {
+  return applyTacticalMovement({
     ...state,
     phase: clock.phase,
     elapsedSeconds,
     ballPosition,
+    playerPositions,
     possessionTeamId: attackingTeam.id,
     ballCarrierId: carrier.id,
     rngState: rng.getState(),
     events: [...state.events, nextEvent],
-  };
+  });
 }
 
 export function makePass(state: MatchState, receiverId: string): MatchState {
@@ -288,7 +293,6 @@ export function makePass(state: MatchState, receiverId: string): MatchState {
     : state.homeSelection;
 
   const passer = team.squad.find((player) => player.id === state.ballCarrierId);
-
   const receiver = team.squad.find((player) => player.id === receiverId);
 
   const activePlayerIds = new Set(selection.startingXI);
@@ -320,7 +324,6 @@ export function makePass(state: MatchState, receiverId: string): MatchState {
       0,
     ) / defenders.length;
 
-  // Initial probability model; calibration will follow.
   const probability = Math.max(
     0.45,
     Math.min(
@@ -341,8 +344,10 @@ export function makePass(state: MatchState, receiverId: string): MatchState {
     proposedDuration,
     state.phase,
   );
+
   const elapsedSeconds = state.elapsedSeconds + duration;
   const clock = getClockTransition(elapsedSeconds);
+
   const interceptor = successful
     ? undefined
     : defenders.reduce((best, player) =>
@@ -364,31 +369,41 @@ export function makePass(state: MatchState, receiverId: string): MatchState {
     lateralDistance,
   );
 
-  const nextEvent = {
+  const receivingPlayerId = successful ? receiver.id : interceptor?.id;
+
+  const playerPositions = receivingPlayerId
+    ? {
+        ...state.playerPositions,
+        [receivingPlayerId]: ballPosition,
+      }
+    : state.playerPositions;
+
+  const nextEvent: MatchEvent = {
     id: state.events.length + 1,
-    type: "pass" as const,
+    type: "pass",
     minute: getMatchMinute(elapsedSeconds),
     elapsedSeconds,
     teamId: team.id,
     playerId: passer.id,
     targetPlayerId: receiver.id,
-    outcome: successful ? ("successful" as const) : ("unsuccessful" as const),
+    outcome: successful ? "successful" : "unsuccessful",
     ...(interceptor ? { interceptedByPlayerId: interceptor.id } : {}),
     description: successful
       ? `${passer.name} passes to ${receiver.name}.`
       : `${passer.name}'s pass is intercepted by ${interceptor?.name}.`,
   };
 
-  return {
+  return applyTacticalMovement({
     ...state,
     phase: clock.phase,
     elapsedSeconds,
     ballPosition,
+    playerPositions,
     possessionTeamId: successful ? team.id : opposition.id,
     ballCarrierId: successful ? receiver.id : (interceptor?.id ?? null),
     rngState: rng.getState(),
     events: [...state.events, nextEvent],
-  };
+  });
 }
 
 export function makeTackle(state: MatchState, tacklerId: string): MatchState {
@@ -400,20 +415,15 @@ export function makeTackle(state: MatchState, tacklerId: string): MatchState {
     throw new Error("There is no player in possession.");
   }
 
-  const defendingTeam =
-    state.possessionTeamId === state.homeTeam.id
-      ? state.awayTeam
-      : state.homeTeam;
+  const isHomePossession = state.possessionTeamId === state.homeTeam.id;
 
-  const defendingSelection =
-    state.possessionTeamId === state.homeTeam.id
-      ? state.awaySelection
-      : state.homeSelection;
+  const defendingTeam = isHomePossession ? state.awayTeam : state.homeTeam;
 
-  const attackingTeam =
-    state.possessionTeamId === state.homeTeam.id
-      ? state.homeTeam
-      : state.awayTeam;
+  const defendingSelection = isHomePossession
+    ? state.awaySelection
+    : state.homeSelection;
+
+  const attackingTeam = isHomePossession ? state.homeTeam : state.awayTeam;
 
   const carrier = attackingTeam.squad.find(
     (player) => player.id === state.ballCarrierId,
@@ -452,31 +462,114 @@ export function makeTackle(state: MatchState, tacklerId: string): MatchState {
     proposedDuration,
     state.phase,
   );
+
   const elapsedSeconds = state.elapsedSeconds + duration;
   const clock = getClockTransition(elapsedSeconds);
 
-  const nextEvent = {
+  const tacklerPosition = state.playerPositions[tackler.id];
+  const carrierPosition =
+    state.playerPositions[carrier.id] ?? state.ballPosition;
+
+  const nextTacklerPosition = tacklerPosition
+    ? movePlayerTowards(tacklerPosition, carrierPosition, 4.5)
+    : undefined;
+
+  const playerPositions = nextTacklerPosition
+    ? {
+        ...state.playerPositions,
+        [tackler.id]: nextTacklerPosition,
+      }
+    : state.playerPositions;
+
+  const ballPosition = successful
+    ? (nextTacklerPosition ?? state.ballPosition)
+    : state.ballPosition;
+
+  const nextEvent: MatchEvent = {
     id: state.events.length + 1,
-    type: "tackle" as const,
+    type: "tackle",
     minute: getMatchMinute(elapsedSeconds),
     elapsedSeconds,
     teamId: defendingTeam.id,
     playerId: tackler.id,
     targetPlayerId: carrier.id,
-    outcome: successful ? ("successful" as const) : ("unsuccessful" as const),
+    outcome: successful ? "successful" : "unsuccessful",
     description: successful
       ? `${tackler.name} wins the ball from ${carrier.name}.`
       : `${tackler.name} fails to dispossess ${carrier.name}.`,
   };
 
-  return {
+  return applyTacticalMovement({
     ...state,
     phase: clock.phase,
     elapsedSeconds,
+    ballPosition,
+    playerPositions,
     possessionTeamId: successful ? defendingTeam.id : attackingTeam.id,
     ballCarrierId: successful ? tackler.id : carrier.id,
     rngState: rng.getState(),
     events: [...state.events, nextEvent],
+  });
+}
+
+function restartAfterGoal(
+  state: MatchState,
+  kickoffTeamId: TeamId,
+  elapsedSeconds: number,
+  phase: MatchState["phase"],
+  rngState: number,
+  events: readonly MatchEvent[],
+): MatchState {
+  const isHome = kickoffTeamId === state.homeTeam.id;
+
+  const team = isHome ? state.homeTeam : state.awayTeam;
+  const selection = isHome ? state.homeSelection : state.awaySelection;
+
+  const startingPlayers = selection.startingXI
+    .map((id) => team.squad.find((player) => player.id === id))
+    .filter((player) => player !== undefined);
+
+  const kickoffPlayer =
+    startingPlayers.find((player) => player.primaryPosition === "ST") ??
+    startingPlayers.find((player) => player.primaryPosition !== "GK");
+
+  if (!kickoffPlayer) {
+    throw new Error("No eligible player found to take goal kickoff.");
+  }
+
+  const centrePosition = { x: 52.5, y: 34 };
+
+  const playerPositions = {
+    ...createMatchPlayerPositions(
+      state.homeTeam,
+      state.awayTeam,
+      state.homeSelection,
+      state.awaySelection,
+      phase === "second-half",
+    ),
+    [kickoffPlayer.id]: centrePosition,
+  };
+
+  const kickoffEvent: MatchEvent = {
+    id: state.events.length + events.length + 1,
+    type: "kickoff",
+    minute: getMatchMinute(elapsedSeconds),
+    elapsedSeconds,
+    teamId: team.id,
+    playerId: kickoffPlayer.id,
+    description: `${team.name} kick off after conceding a goal.`,
+  };
+
+  return {
+    ...state,
+    phase,
+    elapsedSeconds,
+    possessionTeamId: team.id,
+    ballCarrierId: kickoffPlayer.id,
+    ballPosition: centrePosition,
+    playerPositions,
+    rngState,
+    events: [...state.events, ...events, kickoffEvent],
   };
 }
 
@@ -519,14 +612,13 @@ export function makeShot(state: MatchState): MatchState {
 
   const rng = createRng(state.rngState);
 
-  // Long-range attempts are less accurate than close-range attempts.
   const distancePenalty = Math.max(0, distanceToGoal - 12) * 0.008;
 
   const accuracyProbability = Math.max(
     0.15,
     Math.min(
       0.8,
-      0.48 +
+      0.32 +
         (shooter.attributes.shooting - 50) * 0.003 +
         (shooter.attributes.finishing - 50) * 0.002 -
         distancePenalty,
@@ -535,14 +627,13 @@ export function makeShot(state: MatchState): MatchState {
 
   const onTarget = rng.next() < accuracyProbability;
 
-  // The goalkeeper has a better chance of saving shots from distance.
   const distanceSaveBonus = Math.max(0, distanceToGoal - 12) * 0.006;
 
   const saveProbability = Math.max(
     0.2,
     Math.min(
       0.9,
-      0.5 +
+      0.65 +
         (goalkeeper.attributes.goalkeeping - 50) * 0.005 -
         (shooter.attributes.shooting - 50) * 0.002 -
         (shooter.attributes.finishing - 50) * 0.002 +
@@ -609,9 +700,32 @@ export function makeShot(state: MatchState): MatchState {
     });
   }
 
-  const defendingGoalkeeperId = goalkeeper.id;
+  if (goal) {
+    return restartAfterGoal(
+      {
+        ...state,
+        score: {
+          home: state.score.home + (isHome ? 1 : 0),
+          away: state.score.away + (isHome ? 0 : 1),
+        },
+      },
+      defendingTeam.id,
+      elapsedSeconds,
+      clock.phase,
+      rng.getState(),
+      nextEvents,
+    );
+  }
 
-  return {
+  const goalkeeperPosition =
+    state.playerPositions[goalkeeper.id] ?? state.ballPosition;
+
+  const playerPositions = {
+    ...state.playerPositions,
+    [goalkeeper.id]: goalkeeperPosition,
+  };
+
+  return applyTacticalMovement({
     ...state,
     elapsedSeconds,
     phase: clock.phase,
@@ -619,17 +733,13 @@ export function makeShot(state: MatchState): MatchState {
       home: state.score.home + (goal && isHome ? 1 : 0),
       away: state.score.away + (goal && !isHome ? 1 : 0),
     },
-    possessionTeamId:
-      attackingTeam.id === state.possessionTeamId
-        ? saved || goal || !onTarget
-          ? defendingTeam.id
-          : attackingTeam.id
-        : defendingTeam.id,
-    ballCarrierId:
-      saved || goal || !onTarget ? defendingGoalkeeperId : shooter.id,
+    possessionTeamId: defendingTeam.id,
+    ballCarrierId: goalkeeper.id,
+    ballPosition: goalkeeperPosition,
+    playerPositions,
     rngState: rng.getState(),
     events: [...state.events, ...nextEvents],
-  };
+  });
 }
 
 export function substitutePlayer(

@@ -48,7 +48,7 @@ function createControllerWithSubstitutes() {
 
   const homeSelection = {
     ...createCalibrationSelection(homeTeam),
-    startingXI: homeBase.squad.map((player) => player.id),
+    startingXI: homeBase.squad.slice(0, 11).map((player) => player.id),
     substitutes: [substitute.id],
   };
 

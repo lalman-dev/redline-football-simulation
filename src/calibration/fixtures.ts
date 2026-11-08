@@ -37,6 +37,7 @@ export function createCalibrationTeam(
   attributeOverrides: Partial<Player["attributes"]> = {},
 ): Team {
   const positions: Player["primaryPosition"][] = [
+    // Starting XI
     "GK",
     "CB",
     "CB",
@@ -47,6 +48,15 @@ export function createCalibrationTeam(
     "CM",
     "LW",
     "RW",
+    "ST",
+
+    // Seven substitutes
+    "GK",
+    "CB",
+    "LB",
+    "RB",
+    "CM",
+    "AM",
     "ST",
   ];
 
@@ -62,13 +72,15 @@ export function createCalibrationTeam(
 export function createCalibrationSelection(team: Team): TeamSelection {
   return {
     teamId: team.id,
-    startingXI: team.squad.map((player) => player.id),
-    substitutes: [],
+    startingXI: team.squad.slice(0, 11).map((player) => player.id),
+    substitutes: team.squad.slice(11).map((player) => player.id),
+
     formation: {
       defenders: 4,
       midfielders: 3,
       forwards: 3,
     },
+
     tactics: {
       mentality: 50,
       pressing: 50,

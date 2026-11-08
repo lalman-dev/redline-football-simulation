@@ -97,17 +97,43 @@ describe("simulateMatch", () => {
     );
   });
 
-  it("records the second-half kickoff for the other team", () => {
+  it("records the second-half kickoff and goal restarts correctly", () => {
     const result = simulateMatch(createInitialState(12345), {
       kickoffTeamId: "home",
     });
 
     const kickoffs = result.events.filter((event) => event.type === "kickoff");
 
-    expect(kickoffs).toHaveLength(2);
+    // Initial kickoff belongs to the home team.
     expect(kickoffs[0]?.teamId).toBe("home");
-    expect(kickoffs[1]?.teamId).toBe("away");
-    expect(kickoffs[1]?.minute).toBe(45);
+
+    // Find the second-half kickoff independently of goal restarts.
+    const secondHalfKickoff = kickoffs.find((event) =>
+      event.description.includes("second half"),
+    );
+
+    expect(secondHalfKickoff).toBeDefined();
+    expect(secondHalfKickoff?.teamId).toBe("away");
+    expect(secondHalfKickoff?.minute).toBe(45);
+
+    // Every goal must produce exactly one goal restart.
+    const goals = result.events.filter((event) => event.type === "goal");
+
+    const goalRestarts = kickoffs.filter((event) =>
+      event.description.includes("after conceding a goal"),
+    );
+
+    expect(goalRestarts).toHaveLength(goals.length);
+
+    // The team conceding each goal must take the restart.
+    for (const goal of goals) {
+      const restart = goalRestarts.find(
+        (event) => event.elapsedSeconds === goal.elapsedSeconds,
+      );
+
+      expect(restart).toBeDefined();
+      expect(restart?.teamId).toBe(goal.teamId === "home" ? "away" : "home");
+    }
   });
 
   it("produces identical results with identical seeds", () => {

@@ -52,9 +52,11 @@ export function createTeamPlayerPositions(
 ): Record<string, PitchPosition> {
   const players = selection.startingXI.map((id) => {
     const player = team.squad.find((candidate) => candidate.id === id);
+
     if (!player) {
       throw new Error(`Selected player ${id} was not found in ${team.name}.`);
     }
+
     return player;
   });
 
@@ -88,7 +90,6 @@ export function createTeamPlayerPositions(
     throw new Error("Formation must contain exactly ten outfield players.");
   }
 
-  // Assign players to formation lines by positional suitability.
   const defenders = selectLine(outfield, defenderCount, "defenders");
   const defenderIds = new Set(defenders.map((player) => player.id));
 
@@ -164,4 +165,57 @@ export function getTeamAttacksRight(
 ): boolean {
   const homeAttacksRight = state.phase !== "second-half";
   return teamId === state.homeTeam.id ? homeAttacksRight : !homeAttacksRight;
+}
+
+/**
+ * Moves a player towards a target by at most maxDistance metres.
+ * Returns a new position and never mutates the original.
+ */
+export function movePlayerTowards(
+  current: PitchPosition,
+  target: PitchPosition,
+  maxDistance: number,
+): PitchPosition {
+  const dx = target.x - current.x;
+  const dy = target.y - current.y;
+  const distance = Math.hypot(dx, dy);
+
+  if (distance === 0 || maxDistance <= 0) {
+    return current;
+  }
+
+  const movement = Math.min(distance, maxDistance);
+  const ratio = movement / distance;
+
+  return {
+    x: clamp(current.x + dx * ratio, 0, PITCH_LENGTH),
+    y: clamp(current.y + dy * ratio, 0, PITCH_WIDTH),
+  };
+}
+
+/**
+ * Moves a group of players towards a target position.
+ * Missing player positions are safely ignored.
+ */
+export function movePlayersTowardsBall(
+  positions: PlayerPositionMap,
+  playerIds: readonly string[],
+  ballPosition: PitchPosition,
+  maxDistance: number,
+): Record<string, PitchPosition> {
+  const nextPositions: Record<string, PitchPosition> = { ...positions };
+
+  for (const playerId of playerIds) {
+    const current = positions[playerId];
+
+    if (!current) continue;
+
+    nextPositions[playerId] = movePlayerTowards(
+      current,
+      ballPosition,
+      maxDistance,
+    );
+  }
+
+  return nextPositions;
 }
