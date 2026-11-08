@@ -15,8 +15,10 @@ export type MatchEventType =
   | "save"
   | "goal"
   | "substitution"
+  | "tactical-change"
   | "foul"
   | "free-kick"
+  | "penalty"
   | "yellow-card"
   | "red-card"
   | "abandonment"
@@ -33,6 +35,8 @@ export interface MatchEvent {
   readonly description: string;
   readonly targetPlayerId?: PlayerId;
   readonly interceptedByPlayerId?: PlayerId;
+  readonly shotDistanceMeters?: number;
+  readonly shotLocation?: { readonly x: number; readonly y: number };
   readonly outcome?:
     | "successful"
     | "unsuccessful"

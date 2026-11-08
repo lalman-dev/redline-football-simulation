@@ -11,7 +11,9 @@
     "test": "vitest run",
     "calibrate": "npm run build:engine && node dist/calibration/run-calibration.js",
     "validate:strength": "npm run build:engine && node dist/calibration/validate-strength.js",
-    "validate:tactics": "npm run build:engine && node dist/calibration/validate-tactics.js"
+    "validate:tactics": "npm run build:engine && node dist/calibration/validate-tactics.js",
+    "validate:shooting": "npm run build:engine && node dist/calibration/validate-shooting.js",
+    "validate": "npm run validate:strength && npm run validate:tactics && npm run validate:shooting"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.5",

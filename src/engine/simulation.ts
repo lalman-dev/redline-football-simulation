@@ -51,28 +51,6 @@ function getActiveCarrier(state: MatchState): CarrierContext {
   };
 }
 
-function getPositionModifier(position: Player["primaryPosition"]): number {
-  switch (position) {
-    case "ST":
-      return 0.1;
-    case "LW":
-    case "RW":
-      return 0.07;
-    case "AM":
-      return 0.06;
-    case "CM":
-      return 0.01;
-    case "DM":
-      return -0.02;
-    case "CB":
-    case "LB":
-    case "RB":
-      return -0.05;
-    case "GK":
-      return -0.2;
-  }
-}
-
 function getDistanceToGoal(state: MatchState): number {
   const isHome = state.possessionTeamId === state.homeTeam.id;
   const attackingRight = state.phase === "first-half" ? isHome : !isHome;
@@ -99,6 +77,28 @@ function getShotAngleFactor(state: MatchState): number {
   const angle = Math.atan2(cross, dot);
 
   return Math.max(0.2, Math.min(1, angle / 0.65));
+}
+
+function getDefensivePressureFactor(state: MatchState): number {
+  if (!state.possessionTeamId) return 1;
+  const defendingTeam = state.possessionTeamId === state.homeTeam.id
+    ? state.awayTeam
+    : state.homeTeam;
+  const defendingSelection = state.possessionTeamId === state.homeTeam.id
+    ? state.awaySelection
+    : state.homeSelection;
+  const carrierPosition = state.playerPositions[state.ballCarrierId ?? ""] ?? state.ballPosition;
+  const nearestDistance = defendingSelection.startingXI
+    .map((id) => defendingTeam.squad.find((player) => player.id === id))
+    .filter((player): player is Player => player !== undefined && player.primaryPosition !== "GK")
+    .map((player) => state.playerPositions[player.id])
+    .filter((position): position is NonNullable<typeof position> => position !== undefined)
+    .reduce(
+      (nearest, position) => Math.min(nearest, Math.hypot(position.x - carrierPosition.x, position.y - carrierPosition.y)),
+      Number.POSITIVE_INFINITY,
+    );
+
+  return 0.7 + Math.min(1, nearestDistance / 10) * 0.3;
 }
 
 export function getShootingProbability(state: MatchState): number {
@@ -136,27 +136,33 @@ export function getShootingProbability(state: MatchState): number {
 
   const positionMultiplier: Record<Player["primaryPosition"], number> = {
     GK: 0,
-    CB: 0.55,
-    LB: 0.65,
-    RB: 0.65,
-    DM: 0.75,
-    CM: 0.9,
-    AM: 1.05,
-    LW: 1.05,
-    RW: 1.05,
-    ST: 1.15,
+    CB: 0.4,
+    LB: 0.5,
+    RB: 0.5,
+    DM: 0.55,
+    CM: 0.8,
+    AM: 1.1,
+    LW: 1.12,
+    RW: 1.12,
+    ST: 1.08,
   };
+
+  const centralMidfieldLongShotBonus =
+    player.primaryPosition === "CM" && distance > 20 && distance <= 35
+      ? 0.12
+      : 0;
 
   const angleFactor = getShotAngleFactor(state);
 
   const probability =
-    baseProbability * 0.7 *
+    baseProbability * 0.82 *
     qualityMultiplier *
     decisionMultiplier *
     mentalityMultiplier *
     tempoMultiplier *
-    positionMultiplier[player.primaryPosition] *
-    angleFactor;
+    (positionMultiplier[player.primaryPosition] + centralMidfieldLongShotBonus) *
+    angleFactor *
+    getDefensivePressureFactor(state);
 
   return Math.max(0, Math.min(0.45, probability));
 }
@@ -238,9 +244,23 @@ function getReceiverScore(
   );
   const forwardDistance = (position.x - carrierPosition.x) *
     (attacksRight ? 1 : -1);
+  const distanceToGoal = attacksRight ? 105 - position.x : position.x;
+  const attackingZone = Math.max(0, Math.min(1, (55 - distanceToGoal) / 35));
+  const roleBonus = player.primaryPosition === "ST"
+    ? 1 + attackingZone * 2
+    : player.primaryPosition === "LW" || player.primaryPosition === "RW"
+      ? 2 + attackingZone * 4
+      : player.primaryPosition === "AM"
+        ? 2 + attackingZone * 4
+        : player.primaryPosition === "CM"
+          ? 1
+          : player.primaryPosition === "DM"
+            ? -1
+            : -3;
 
-  // Prefer a nearby passing option; technical quality breaks close calls.
-  return -distance * 1.5 + technicalScore * 0.25 + widthBonus * 0.25 + forwardDistance * 0.15;
+  // Prefer nearby options, with a contextual reward for advanced attacking roles.
+  return -distance * 1.5 + technicalScore * 0.25 + widthBonus * 0.25 +
+    forwardDistance * 0.25 + roleBonus;
 }
 
 export function executeNextAction(state: MatchState): MatchState {

@@ -7,14 +7,20 @@ export type PlayerPositionMap = Readonly<Record<string, PitchPosition>>;
 const clamp = (value: number, min: number, max: number): number =>
   Math.max(min, Math.min(max, value));
 
-function spreadAcrossWidth(count: number): number[] {
-  if (count <= 1) return [PITCH_WIDTH / 2];
-
-  const margin = 8;
+function spreadAroundCentre(count: number, spacing: number): number[] {
   return Array.from(
     { length: count },
-    (_, index) => margin + (index * (PITCH_WIDTH - margin * 2)) / (count - 1),
+    (_, index) =>
+      PITCH_WIDTH / 2 + (index - (count - 1) / 2) * spacing,
   );
+}
+
+function isWideLeft(player: Player): boolean {
+  return player.primaryPosition === "LW" || player.primaryPosition === "LB";
+}
+
+function isWideRight(player: Player): boolean {
+  return player.primaryPosition === "RW" || player.primaryPosition === "RB";
 }
 
 function rolePriority(
@@ -154,21 +160,41 @@ export function createTeamPlayerPositions(
     },
   };
 
-  const placeLine = (line: readonly Player[], depth: number) => {
-    const lanes = spreadAcrossWidth(line.length);
+  const placeLine = (
+    line: readonly Player[],
+    depth: number,
+    lineName: "defenders" | "midfielders" | "forwards",
+  ) => {
     const x = attackingRight ? depth : PITCH_LENGTH - depth;
+    const centralPlayers = line.filter(
+      (player) => !isWideLeft(player) && !isWideRight(player),
+    );
+    const centralLanes = spreadAroundCentre(
+      centralPlayers.length,
+      lineName === "midfielders" ? 12 : lineName === "defenders" ? 12 : 8,
+    );
+    let centralIndex = 0;
 
-    line.forEach((player, index) => {
+    line.forEach((player) => {
+      let y: number;
+      if (isWideLeft(player)) {
+        y = attackingRight ? 8 : PITCH_WIDTH - 8;
+      } else if (isWideRight(player)) {
+        y = attackingRight ? PITCH_WIDTH - 8 : 8;
+      } else {
+        y = centralLanes[centralIndex] ?? PITCH_WIDTH / 2;
+        centralIndex += 1;
+      }
       positions[player.id] = {
         x: clamp(x, 0, PITCH_LENGTH),
-        y: lanes[index] ?? PITCH_WIDTH / 2,
+        y: clamp(y, 4, PITCH_WIDTH - 4),
       };
     });
   };
 
-  placeLine(defenders, lineDepth.defenders);
-  placeLine(midfielders, lineDepth.midfielders);
-  placeLine(forwards, lineDepth.forwards);
+  placeLine(defenders, lineDepth.defenders, "defenders");
+  placeLine(midfielders, lineDepth.midfielders, "midfielders");
+  placeLine(forwards, lineDepth.forwards, "forwards");
 
   return positions;
 }

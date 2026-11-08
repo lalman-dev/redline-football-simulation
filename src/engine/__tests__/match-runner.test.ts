@@ -120,7 +120,7 @@ describe("simulateMatch", () => {
 
       expect(kickoff.playerId).toBeDefined();
       expect(selection.startingXI).toContain(kickoff.playerId);
-      expect(taker?.primaryPosition).toBe("CM");
+      expect(taker?.primaryPosition).toBe("ST");
       expect(kickoff.teamId === "home"
         ? result.awayTeam.squad.some((player) => player.id === kickoff.playerId)
         : result.homeTeam.squad.some((player) => player.id === kickoff.playerId)

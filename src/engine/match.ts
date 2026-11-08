@@ -18,16 +18,19 @@ function selectKickoffPlayer(team: Team, selection: TeamSelection) {
     .filter((player) => player !== undefined);
 
   return (
+    startingPlayers.find((player) => player.primaryPosition === "ST") ??
+    startingPlayers.find((player) => player.secondaryPositions.includes("ST")) ??
+    startingPlayers.find((player) => player.primaryPosition === "AM") ??
+    startingPlayers.find((player) => player.primaryPosition === "LW" || player.primaryPosition === "RW") ??
     startingPlayers.find((player) => player.primaryPosition === "CM") ??
     startingPlayers.find((player) => player.primaryPosition === "DM") ??
-    startingPlayers.find((player) => player.primaryPosition === "AM") ??
     startingPlayers.find((player) => player.primaryPosition !== "GK")
   );
 }
 
 function getTacticalLoad(selection: TeamSelection): number {
-  return Math.max(0, (selection.tactics.pressing - 50) / 50) * 1.25 +
-    Math.max(0, (selection.tactics.tempo - 50) / 50) * 0.75;
+  return Math.max(0, (selection.tactics.pressing - 50) / 50) * 0.55 +
+    Math.max(0, (selection.tactics.tempo - 50) / 50) * 0.35;
 }
 
 function fatigueAdjusted(
@@ -588,6 +591,12 @@ export function makeTackle(state: MatchState, tacklerId: string): MatchState {
   const tacklerPosition = state.playerPositions[tackler.id];
   const carrierPosition =
     state.playerPositions[carrier.id] ?? state.ballPosition;
+  const attacksRight = state.phase === "first-half" ? isHomePossession : !isHomePossession;
+  // The ball location represents the incident location. Player formation
+  // coordinates can drift from the ball after tactical movement and must not
+  // create a penalty for a foul committed outside the area.
+  const distanceToGoal = attacksRight ? 105 - state.ballPosition.x : state.ballPosition.x;
+  const penaltyAwarded = foul && distanceToGoal <= 16.5 && Math.abs(state.ballPosition.y - 34) <= 20.16;
 
   const nextTacklerPosition = tacklerPosition
     ? movePlayerTowards(tacklerPosition, carrierPosition, 4.5)
@@ -676,15 +685,79 @@ export function makeTackle(state: MatchState, tacklerId: string): MatchState {
     description: `${tackler.name} is sent off.`,
   });
 
-  freeKickEvents.push({
-    id: state.events.length + freeKickEvents.length + 1,
-    type: "free-kick",
-    minute: getMatchMinute(elapsedSeconds),
-    elapsedSeconds,
-    teamId: attackingTeam.id,
-    playerId: kicker.id,
-    description: `${attackingTeam.name} take a free kick.`,
-  });
+  let penaltyOutcome: "goal" | "saved" | "off-target" | undefined;
+  let penaltyTaker: Player | undefined;
+  let penaltyKeeper: Player | undefined;
+  if (penaltyAwarded) {
+    const eligibleTakers = attackingSelection.startingXI
+      .map((id) => attackingTeam.squad.find((player) => player.id === id))
+      .filter((player): player is Player => player !== undefined && player.primaryPosition !== "GK");
+    penaltyTaker = eligibleTakers.sort((a, b) => {
+      const score = (player: Player) => player.attributes.finishing * 0.55 + player.attributes.shooting * 0.3 + player.attributes.decisionMaking * 0.15 + (player.primaryPosition === "ST" ? 4 : player.primaryPosition === "AM" ? 2 : 0);
+      return score(b) - score(a);
+    })[0];
+    penaltyKeeper = defendingSelection.startingXI
+      .map((id) => defendingTeam.squad.find((player) => player.id === id))
+      .find((player) => player?.primaryPosition === "GK");
+    if (!penaltyTaker || !penaltyKeeper) throw new Error("Penalty taker or goalkeeper could not be found.");
+
+    const goalProbability = Math.max(0.65, Math.min(0.84,
+      0.75 + (penaltyTaker.attributes.finishing - 50) * 0.0015 + (penaltyTaker.attributes.shooting - 50) * 0.0005 - (penaltyKeeper.attributes.goalkeeping - 50) * 0.001,
+    ));
+    const saveProbability = Math.min(1 - goalProbability, Math.max(0.1, Math.min(0.25,
+      0.18 + (penaltyKeeper.attributes.goalkeeping - 50) * 0.002 - (penaltyTaker.attributes.finishing - 50) * 0.0005,
+    )));
+    const penaltyRoll = rng.next();
+    penaltyOutcome = penaltyRoll < goalProbability ? "goal" : penaltyRoll < goalProbability + saveProbability ? "saved" : "off-target";
+    freeKickEvents.push({
+      id: state.events.length + freeKickEvents.length + 1,
+      type: "penalty",
+      minute: getMatchMinute(elapsedSeconds),
+      elapsedSeconds,
+      teamId: attackingTeam.id,
+      playerId: penaltyTaker.id,
+      targetPlayerId: penaltyKeeper.id,
+      shotDistanceMeters: 11,
+      shotLocation: { x: attacksRight ? 94 : 11, y: 34 },
+      outcome: penaltyOutcome,
+      description: penaltyOutcome === "goal"
+        ? `${penaltyTaker.name} scores the penalty.`
+        : penaltyOutcome === "saved"
+          ? `${penaltyKeeper.name} saves ${penaltyTaker.name}'s penalty.`
+          : `${penaltyTaker.name} misses the penalty off target.`,
+    });
+    if (penaltyOutcome === "goal") freeKickEvents.push({
+      id: state.events.length + freeKickEvents.length + 1,
+      type: "goal",
+      minute: getMatchMinute(elapsedSeconds),
+      elapsedSeconds,
+      teamId: attackingTeam.id,
+      playerId: penaltyTaker.id,
+      outcome: "goal",
+      description: `GOAL! ${penaltyTaker.name} scores from the penalty spot for ${attackingTeam.name}.`,
+    });
+    if (penaltyOutcome === "saved") freeKickEvents.push({
+      id: state.events.length + freeKickEvents.length + 1,
+      type: "save",
+      minute: getMatchMinute(elapsedSeconds),
+      elapsedSeconds,
+      teamId: defendingTeam.id,
+      playerId: penaltyKeeper.id,
+      targetPlayerId: penaltyTaker.id,
+      outcome: "successful",
+      description: `${penaltyKeeper.name} saves the penalty.`,
+    });
+  } else {
+    freeKickEvents.push({
+      id: state.events.length + freeKickEvents.length + 1,
+      type: "free-kick",
+      minute: getMatchMinute(elapsedSeconds),
+      elapsedSeconds,
+      teamId: attackingTeam.id,
+      playerId: kicker.id,
+      description: `${attackingTeam.name} take a free kick.`,
+    });
+  }
 
   const nextYellowCards = yellow
     ? { ...state.yellowCards, [tackler.id]: previousYellows + 1 }
@@ -713,10 +786,16 @@ export function makeTackle(state: MatchState, tacklerId: string): MatchState {
     awaySelection: isHomePossession ? nextDefendingSelection : state.awaySelection,
     yellowCards: nextYellowCards,
     dismissedPlayerIds: nextDismissed,
-    ballPosition: carrierPosition,
-    playerPositions: { ...playerPositions, [kicker.id]: carrierPosition },
-    possessionTeamId: attackingTeam.id,
-    ballCarrierId: kicker.id,
+    score: penaltyOutcome === "goal" ? {
+      home: state.score.home + (isHomePossession ? 1 : 0),
+      away: state.score.away + (isHomePossession ? 0 : 1),
+    } : state.score,
+    ballPosition: penaltyOutcome ? (playerPositions[penaltyKeeper!.id] ?? carrierPosition) : carrierPosition,
+    playerPositions: penaltyOutcome
+      ? playerPositions
+      : { ...playerPositions, [kicker.id]: carrierPosition },
+    possessionTeamId: penaltyOutcome ? defendingTeam.id : attackingTeam.id,
+    ballCarrierId: penaltyOutcome ? penaltyKeeper!.id : kicker.id,
     rngState: rng.getState(),
     events: [...state.events, ...freeKickEvents],
   };
@@ -738,6 +817,10 @@ export function makeTackle(state: MatchState, tacklerId: string): MatchState {
       ballCarrierId: null,
       events: [...nextState.events, abandonment],
     };
+  }
+
+  if (penaltyOutcome === "goal") {
+    return restartAfterGoal(nextState, defendingTeam.id, elapsedSeconds, clock.phase, rng.getState(), []);
   }
 
   return applyTacticalMovement(nextState);
@@ -833,9 +916,23 @@ export function makeShot(state: MatchState): MatchState {
 
   const attackingRight = state.phase === "first-half" ? isHome : !isHome;
 
-  const distanceToGoal = attackingRight
+  const depthToGoal = attackingRight
     ? 105 - state.ballPosition.x
     : state.ballPosition.x;
+  const lateralDistanceToGoal = Math.abs(state.ballPosition.y - 34);
+  const distanceToGoal = Math.hypot(depthToGoal, lateralDistanceToGoal);
+
+  const halfGoalAngle = Math.atan2(3.66, Math.max(1, depthToGoal));
+  const offsetAngle = Math.atan2(lateralDistanceToGoal, Math.max(1, depthToGoal));
+  const visibleGoalAngle = Math.max(0.05, 2 * halfGoalAngle - offsetAngle);
+  const angleQuality = Math.max(0.35, Math.min(1, visibleGoalAngle / (2 * Math.atan2(3.66, 12))));
+  const nearestDefenderDistance = defendingSelection.startingXI
+    .map((id) => defendingTeam.squad.find((player) => player.id === id))
+    .filter((player): player is Player => player !== undefined && player.primaryPosition !== "GK")
+    .map((player) => state.playerPositions[player.id])
+    .filter((position): position is NonNullable<typeof position> => position !== undefined)
+    .reduce((nearest, position) => Math.min(nearest, Math.hypot(position.x - state.ballPosition.x, position.y - state.ballPosition.y)), Number.POSITIVE_INFINITY);
+  const defensivePressure = Math.max(0, 1 - nearestDefenderDistance / 6);
 
   const rng = createRng(state.rngState);
 
@@ -848,7 +945,8 @@ export function makeShot(state: MatchState): MatchState {
       0.32 +
         (isHome ? 0.015 : 0) +
         (fatigueAdjusted(shooter.attributes.shooting, shooter.attributes.stamina, state.elapsedSeconds, attackingLoad) - 50) * 0.003 +
-        (fatigueAdjusted(shooter.attributes.finishing, shooter.attributes.stamina, state.elapsedSeconds, attackingLoad) - 50) * 0.002 -
+        0.08 * (angleQuality - 1) -
+        Math.min(0.07, defensivePressure * 0.07) -
         distancePenalty,
     ),
   );
@@ -856,6 +954,11 @@ export function makeShot(state: MatchState): MatchState {
   const onTarget = rng.next() < accuracyProbability;
 
   const distanceSaveBonus = Math.max(0, distanceToGoal - 12) * 0.006;
+  const goalkeeperGoalLineX = attackingRight ? 102 : 3;
+  const goalkeeperShotPosition = state.playerPositions[goalkeeper.id] ?? { x: goalkeeperGoalLineX, y: 34 };
+  const goalkeeperAlignmentPenalty = Math.min(0.1,
+    Math.abs(goalkeeperShotPosition.y - 34) * 0.004 + Math.abs(goalkeeperShotPosition.x - goalkeeperGoalLineX) * 0.01,
+  );
 
   const saveProbability = Math.max(
     0.2,
@@ -864,9 +967,9 @@ export function makeShot(state: MatchState): MatchState {
       0.73 +
         (defendingTeam.id === state.homeTeam.id ? 0.015 : 0) +
         (fatigueAdjusted(goalkeeper.attributes.goalkeeping, goalkeeper.attributes.stamina, state.elapsedSeconds, defendingLoad) - 50) * 0.005 -
-        (shooter.attributes.shooting - 50) * 0.002 -
-        (shooter.attributes.finishing - 50) * 0.002 +
-        distanceSaveBonus,
+        (fatigueAdjusted(goalkeeper.attributes.positioning, goalkeeper.attributes.stamina, state.elapsedSeconds, defendingLoad) - 50) * 0.002 -
+        (fatigueAdjusted(shooter.attributes.finishing, shooter.attributes.stamina, state.elapsedSeconds, attackingLoad) - 50) * 0.002 +
+        distanceSaveBonus - goalkeeperAlignmentPenalty,
     ),
   );
 
@@ -903,6 +1006,9 @@ export function makeShot(state: MatchState): MatchState {
       elapsedSeconds,
       teamId: attackingTeam.id,
       playerId: shooter.id,
+      targetPlayerId: goalkeeper.id,
+      shotDistanceMeters: distanceToGoal,
+      shotLocation: state.ballPosition,
       outcome,
       description: !onTarget
         ? `${shooter.name} shoots off target.`

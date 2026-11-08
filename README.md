@@ -1,25 +1,47 @@
 # REDLINE FOOTBALL ENGINE
 
-A TypeScript football match engine with a seeded simulation, a React/Vite match visualizer, manager controls, and a calibration harness. The engine is intentionally a simulation prototype; it is not a complete implementation of the IFAB Laws of the Game.
+REDLINE FOOTBALL ENGINE is a football match simulation project I built using TypeScript, React and Vite.
 
-## Requirements and commands
+The idea is to simulate a football match from kickoff to full-time, with player attributes, team formations, tactics, match events and manager decisions affecting how the game develops. I also built a match visualizer so I can follow the simulation and interact with it through manager controls.
+
+The engine uses seeded randomness, which means the same initial conditions and seed can reproduce the same match. It is still a simulation prototype, not a complete implementation of the IFAB Laws of the Game.
+
+## Requirements
 
 - Node.js 22 or later
 - npm
 
+## Getting started
+
+Install dependencies:
+
 ```bash
 npm ci
-npm run dev                 # start the visualizer
-npm test                    # run the test suite
-npm run build               # compile the engine and production visualizer
-npm run calibrate           # simulate 1,000 calibration matches
-npm run validate:strength   # compare individual attribute boosts
-npm run validate:tactics    # compare four tactical styles head-to-head
 ```
+
+Start the development server:
+
+```bash
+npm run dev
+```
+
+## Available commands
+
+| Command                     | Description                                        |
+| --------------------------- | -------------------------------------------------- |
+| `npm test`                  | Run the test suite                                 |
+| `npm run build`             | Build the engine and production visualizer         |
+| `npm run calibrate`         | Run 1,000 calibration matches                      |
+| `npm run validate:strength` | Compare the effect of individual player attributes |
+| `npm run validate:tactics`  | Compare four tactical styles                       |
+| `npm run validate:shooting` | Check shot distribution across player positions    |
+| `npm run validate`          | Run the strength, tactics and shooting experiments |
 
 ## Engine API
 
-The TypeScript public entry point is `src/index.ts`; `npm run build:engine` emits Node.js ES modules under `dist/`.
+The public TypeScript entry point is `src/index.ts`. Running `npm run build:engine` compiles the engine into Node.js ES modules under `dist/`.
+
+A basic example:
 
 ```ts
 import {
@@ -31,47 +53,200 @@ import {
 } from "./dist/index.js";
 
 const initial = createMatchState({
-  homeTeam, awayTeam, homeSelection, awaySelection, seed: 12345,
+  homeTeam,
+  awayTeam,
+  homeSelection,
+  awaySelection,
+  seed: 12345,
 });
-const result = simulateMatch(initial, { kickoffTeamId: homeTeam.id });
+
+const result = simulateMatch(initial, {
+  kickoffTeamId: homeTeam.id,
+});
+
 const stats = getMatchStatistics(result);
 
+// Save and restore a match
 const saved = snapshotMatch(result);
 const restored = restoreMatch(JSON.parse(JSON.stringify(saved)));
 ```
 
-The controller API (`createMatchController`, `advanceMatch`, `pauseMatch`, `resumeMatch`, `changeTeamTactics`, `changeTeamFormation`, and `makeSubstitution`) supports live matches. `simulateMatch` runs headlessly. Match snapshots include the event log, match state, and RNG state for deterministic continuation. Statistics are derived from recorded events; no possession or playing-time estimates are fabricated.
+### Match controller
 
-## Architecture
+I also implemented a controller API for managing a match while it is running.
 
-- `src/engine/match.ts`: match setup, actions, scoring, substitutions and state transitions.
-- `src/engine/simulation.ts`: action selection, receiver selection and defensive pressure.
-- `src/engine/match-runner.ts`: headless match loop.
-- `src/engine/match-controller.ts`: live manager controls.
-- `src/engine/spatial.ts` and `tactical-movement.ts`: pitch positions and movement.
-- `src/calibration/`: seeded fixtures, aggregate metrics and attribute experiments.
-- `src/ui/`: React visualizer, which renders engine state and dispatches controller actions.
+It supports:
 
-## Implemented behavior
+- Advancing the match by actions.
+- Advancing to a requested minute with `advanceToMinute`.
+- Advancing by a specified number of minutes with `advanceByMinutes`.
+- Advancing to the next event with `advanceUntilNextEvent`.
+- Advancing until a particular event type with `advanceUntilEventType`.
+- Pausing and resuming.
+- Changing tactics and formations.
+- Making substitutions.
 
-- Validated starting lineups, formations and tactical ranges.
-- Seeded random actions and reproducible match runs.
-- First-half, second-half and full-time transitions with deterministic time allowance for goals, fouls/cards and active-play substitutions.
-- Passes, carries, tackles, shots, saves, goals and substitutions.
-- CM-first kickoff choice (then DM, AM and another outfield player); kickoff taker, ball carrier and centre position are aligned.
-- Player attributes affect relevant actions. Stamina reduces performance over match time; strength affects tackle duels; dribbling affects carrying and defensive challenges.
-- Tactics affect action selection, movement and defensive pressure. Live and headless modes use the same pressure probability.
-- Fouls during tackle attempts award a free kick; yellow cards, direct red cards and second-yellow dismissals are recorded. Sent-off players leave the active XI, and play ends if a dismissal leaves fewer than seven players.
-- Event-derived team and player statistics, plus serializable match snapshot and restore.
+Minute advancement is action-based, so the final action can cross the requested time by a few seconds. This keeps actions atomic and avoids skipping events. Event-type advancement has a configurable action limit and throws an error if the requested event is not reached.
 
-## Simplified rules and limitations
+The live controller and `simulateMatch` use the same action executor and seeded RNG. This helps keep the live and headless simulation paths consistent.
 
-- Added time currently uses fixed increments for goals, fouls, disciplinary sanctions and active-play substitutions. It does not model every cause or a referee-announced minimum.
-- Fouls are only considered during tackle attempts, and card severity is probabilistic. The model does not yet implement advantage, DOGSO assessment, offside, penalties, corners, throw-ins, goal kicks, injuries or suspension carry-over.
-- Fatigue is a performance adjustment based on match time and stamina, not a per-player workload record; player minutes and season carry-over are not available.
-- The event simulation abstracts continuous play. Passing and movement are simplified; it does not implement a full spatial ball-flight, offside-line or advantage model.
-- Calibration uses synthetic teams. It does not compare against a sourced real-world match dataset, and current reports are not evidence of full statistical realism.
-- Formation and tactics affect the simulation. A small tactic-versus-tactic experiment is available, but its results are not strong evidence that no tactic is dominant.
-- Snapshot restore validates the basic envelope and assumes snapshots are trusted data from this engine version.
+The controller also exposes:
 
-The engine should therefore be treated as an extensible prototype, not an IFAB-compliant referee or a production season simulator.
+- `getCurrentMatchState`
+- `getMatchEventLog`
+- `getCurrentMatchStatistics`
+
+## Match statistics and reports
+
+I built the statistics system around the match event log rather than maintaining a separate set of counters for every action.
+
+It currently calculates:
+
+- Goals and score.
+- Shots and shots on target.
+- Saves.
+- Passes and pass accuracy.
+- Tackles and successful tackles.
+- Fouls and disciplinary events.
+- Substitutions.
+- Player minutes.
+- Assists.
+- Possession percentages.
+
+Possession is reconstructed from the time between consecutive events and the inferred possessor after each event. The two teams' percentages add up to 100%, but this is an approximation based on the simulation's event model, not tracking-data-based possession.
+
+Player minutes are calculated from event timestamps and adjusted for substitutions and dismissals. They are rounded to one decimal place.
+
+For assists, I credit the last successful pass from the scoring team before the shot, provided the event sequence supports it. Direct shots and unsupported sequences are not credited.
+
+At full-time, the engine also generates a match explanation using recorded information such as the score, shots, conversion, possession, saves, passing, tackles, cards, substitutions and tactical changes. It does not attempt to invent information that was not recorded during the match.
+
+## Calibration and validation
+
+I added a calibration harness to run multiple seeded matches and examine the overall behaviour of the simulation.
+
+The calibration reports:
+
+- Match outcomes.
+- Average goals and shots.
+- Shot conversion.
+- Penalty and open-play scoring separately.
+- Shot outcomes by player position.
+- Shot outcomes by distance.
+- Goalkeeper saves and goals conceded.
+- Passing and tackling activity.
+- Fouls and cards.
+
+Penalty attempts are included in the shot count, so they are not excluded when calculating overall conversion.
+
+I also added separate experiments to compare player attributes, tactical styles and shooting distribution.
+
+These tests help identify changes in simulation behaviour and possible regressions. The teams and results are synthetic, so I do not treat the calibration output as proof that the engine matches real-world football statistics.
+
+**Current limitation:** The synthetic fixtures still produce more penalty awards than I would expect in a real match. I have kept penalty and open-play conversion separate in the reports while investigating the spatial and foul mechanics.
+
+## Project structure
+
+```text
+src/
+├── engine/
+│   ├── match.ts
+│   ├── simulation.ts
+│   ├── match-runner.ts
+│   ├── match-controller.ts
+│   ├── match-types.ts
+│   ├── statistics.ts
+│   ├── spatial.ts
+│   └── tactical-movement.ts
+│
+├── calibration/
+│   └── ...
+│
+├── ui/
+│   └── ...
+│
+└── index.ts
+
+README.md
+DECISIONS.md
+ASSIGNMENT_AUDIT.md
+```
+
+The main responsibilities are:
+
+| File or folder         | Responsibility                                                     |
+| ---------------------- | ------------------------------------------------------------------ |
+| `match.ts`             | Match setup, actions, scoring, substitutions and state transitions |
+| `simulation.ts`        | Action selection, receiver selection and defensive pressure        |
+| `match-runner.ts`      | Runs matches without the visualizer                                |
+| `match-controller.ts`  | Live match controls and manager actions                            |
+| `spatial.ts`           | Pitch positions and spatial calculations                           |
+| `tactical-movement.ts` | Player movement based on formation and tactics                     |
+| `calibration/`         | Test fixtures, match calibration and attribute experiments         |
+| `ui/`                  | React match visualizer and manager controls                        |
+| `index.ts`             | Public engine exports                                              |
+
+## Implemented features
+
+The current implementation includes:
+
+- Starting lineup, formation and tactical validation.
+- Seeded random match simulation.
+- First-half, second-half and full-time transitions.
+- Added time based on recorded match events.
+- Passing, carrying, tackling and shooting.
+- Saves, goals, penalties and substitutions.
+- Kickoff selection and restart handling.
+- Player attributes affecting match actions.
+- Stamina-based performance adjustments over match time.
+- Strength affecting tackle duels.
+- Dribbling affecting carrying and defensive challenges.
+- Tactical effects on action selection, player movement and defensive pressure.
+- Fouls, yellow cards, direct red cards and second-yellow dismissals.
+- Removal of sent-off players from the active lineup.
+- Match termination if a team has fewer than seven players.
+- Event-based match statistics and final explanations.
+- Match snapshots and state restoration.
+- Live manager controls and headless match simulation.
+
+The shooting model considers player role, shooting ability, finishing, distance, angle and nearby defensive pressure. The engine also uses player roles when selecting shooting opportunities and passing options.
+
+## Current limitations
+
+There are still several areas I want to improve.
+
+### Match rules
+
+Added time currently uses fixed increments for goals, fouls, disciplinary sanctions and active-play substitutions. It does not model every reason a referee might add time.
+
+Fouls are currently considered during tackle attempts. Card severity is probabilistic, and advantage and DOGSO assessment are not implemented.
+
+Offside, corners, throw-ins, injuries and suspension carryover are also not implemented.
+
+### Player fatigue
+
+Stamina affects performance over match time, but the engine does not yet maintain a detailed per-player workload and energy record. Player minutes are available in match statistics, but there is no complete season-level fatigue or player-availability system.
+
+### Spatial simulation
+
+Passing and movement are simplified. The engine does not simulate continuous ball flight, a complete offside line or every detail of player positioning.
+
+Possession is reconstructed from events, and the shot-to-defence transition follows the engine's simplified model.
+
+### Tactical balance
+
+Formations and tactics influence match behaviour, and I have added experiments to compare different tactical styles. However, the current synthetic tests are not enough to establish that the tactical system is fully balanced or that one approach is never dominant.
+
+### Save and restore
+
+Match snapshots preserve continuation state and seeded randomness. Restore validation checks the snapshot version and important match-state structures, including teams, selections, event ordering, clock values, score, positions, substitutions and RNG state.
+
+There is currently no migration system for snapshots created by older engine versions.
+
+## Final note
+
+This is an ongoing project. My focus has been on building a working match engine, keeping the simulation deterministic, making player attributes and tactical decisions matter, and providing enough tests and calibration tools to understand how changes affect match outcomes.
+
+There is still work to do on spatial accuracy, penalty frequency, match realism and the implementation of additional football rules.
+
+I have documented the current implementation and outstanding requirements in `ASSIGNMENT_AUDIT.md`, with technical decisions recorded in `DECISIONS.md`.

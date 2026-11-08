@@ -137,6 +137,18 @@ describe("getShootingProbability", () => {
     );
   });
 
+  it("gives a central striker better shooting odds than a centre midfielder from the same spot", () => {
+    const strikerState = createState();
+    const midfielderState: MatchState = {
+      ...strikerState,
+      ballCarrierId: "home-player-6",
+    };
+
+    expect(getShootingProbability(strikerState)).toBeGreaterThan(
+      getShootingProbability(midfielderState),
+    );
+  });
+
   it("increases shooting probability with attacking mentality", () => {
     const state = createState();
 
@@ -175,6 +187,33 @@ describe("getShootingProbability", () => {
 });
 
 describe("near-ball support and passing", () => {
+  it("selects an advanced striker as a close passing option", () => {
+    let passTarget: string | undefined;
+
+    for (let seed = 1; seed <= 100 && !passTarget; seed += 1) {
+      const initial = createState(seed);
+      const positions = { ...initial.playerPositions };
+      for (const player of initial.homeSelection.startingXI) {
+        positions[player] = { x: 18, y: 8 };
+      }
+      positions["home-player-6"] = { x: 50, y: 34 };
+      positions["home-player-7"] = { x: 54, y: 34 };
+      positions["home-player-11"] = { x: 53, y: 34 };
+
+      const state: MatchState = {
+        ...initial,
+        ballCarrierId: "home-player-6",
+        ballPosition: { x: 50, y: 34 },
+        playerPositions: positions,
+      };
+      const next = executeNextAction(state);
+      const pass = next.events.find((event) => event.type === "pass");
+      if (pass) passTarget = pass.targetPlayerId;
+    }
+
+    expect(passTarget).toBe("home-player-11");
+  });
+
   it("selects a nearby teammate over a much farther option", () => {
     let foundPass = false;
 

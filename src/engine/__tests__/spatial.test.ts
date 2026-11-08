@@ -84,6 +84,17 @@ describe("player spatial positions", () => {
     expect([...changedXPositions]).not.toEqual([...originalXPositions]);
   });
 
+  it("keeps the striker central and places wingers in their attacking lanes", () => {
+    const positions = createTeamPlayerPositions(home, homeSelection, true);
+    const striker = home.squad.find((player) => player.primaryPosition === "ST")!;
+    const leftWing = home.squad.find((player) => player.primaryPosition === "LW")!;
+    const rightWing = home.squad.find((player) => player.primaryPosition === "RW")!;
+
+    expect(positions[striker.id]?.y).toBe(34);
+    expect(positions[leftWing.id]?.y).toBe(8);
+    expect(positions[rightWing.id]?.y).toBe(60);
+  });
+
   it("rejects a formation that does not contain ten outfield players", () => {
     expect(() =>
       createTeamPlayerPositions(

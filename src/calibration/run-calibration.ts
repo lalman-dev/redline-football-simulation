@@ -72,11 +72,46 @@ console.log(
 
 console.log("\n--- Goals and shooting ---");
 console.log(`Total goals:             ${report.totalGoals}`);
+console.log(`Goal events recorded:    ${report.totalGoalEvents} (${report.goalEventMismatchMatches} score/event mismatches)`);
 console.log(`Average goals per match: ${report.averageGoals.toFixed(2)}`);
 console.log(`Total shots:             ${report.totalShots}`);
 console.log(`Average shots per match: ${report.averageShots.toFixed(2)}`);
+console.log(`Overall shot conversion: ${report.totalShots ? `${(report.totalGoals / report.totalShots * 100).toFixed(1)}%` : "0.0%"}`);
+console.log(`Penalty attempts:         ${report.totalPenalties}`);
+console.log(`Penalty outcomes:         ${report.penaltyGoals} goals, ${report.penaltySaves} saves, ${report.penaltyMisses} misses`);
+const openPlayShots = report.totalShots - report.totalPenalties;
+const openPlayGoals = report.totalGoals - report.penaltyGoals;
+console.log(`Open-play shots:          ${openPlayShots}`);
+console.log(`Open-play goals:          ${openPlayGoals}`);
+console.log(`Open-play conversion:     ${openPlayShots ? `${(openPlayGoals / openPlayShots * 100).toFixed(1)}%` : "0.0%"}`);
 console.log(`Shots on target:         ${report.shotsOnTarget}`);
 console.log(`Total saves:             ${report.totalSaves}`);
+console.log(`Off-target misses:       ${report.totalMisses}`);
+console.log("Shots and goals by player position (includes penalties):");
+for (const [position, counts] of Object.entries(report.shotsByPosition)) {
+  const conversion = counts.shots ? `${(counts.goals / counts.shots * 100).toFixed(1)}%` : "0.0%";
+  console.log(`  ${position.padEnd(3)} ${String(counts.shots).padStart(6)} shots  ${String(counts.goals).padStart(5)} goals  ${String(counts.saves).padStart(5)} saves  ${String(counts.misses).padStart(5)} misses  conv ${conversion}`);
+}
+console.log("Open-play shots and goals by player position:");
+for (const [position, counts] of Object.entries(report.openPlayShotsByPosition)) {
+  const conversion = counts.shots ? `${(counts.goals / counts.shots * 100).toFixed(1)}%` : "0.0%";
+  console.log(`  ${position.padEnd(3)} ${String(counts.shots).padStart(6)} shots  ${String(counts.goals).padStart(5)} goals  conv ${conversion}`);
+}
+console.log("Shots and goals by distance (includes penalty spot attempts):");
+for (const [band, counts] of Object.entries(report.shotsByDistance)) {
+  const conversion = counts.shots ? `${(counts.goals / counts.shots * 100).toFixed(1)}%` : "0.0%";
+  console.log(`  ${band.padEnd(8)} ${String(counts.shots).padStart(6)} shots  ${String(counts.goals).padStart(5)} goals  conversion ${conversion}`);
+}
+console.log("Open-play shots and goals by distance:");
+for (const [band, counts] of Object.entries(report.openPlayShotsByDistance)) {
+  const conversion = counts.shots ? `${(counts.goals / counts.shots * 100).toFixed(1)}%` : "0.0%";
+  console.log(`  ${band.padEnd(8)} ${String(counts.shots).padStart(6)} shots  ${String(counts.goals).padStart(5)} goals  conversion ${conversion}`);
+}
+console.log("Goalkeeper shot outcomes:");
+for (const [goalkeeperId, keeper] of Object.entries(report.goalkeeperStats)) {
+  const saveRate = keeper.faced ? `${(keeper.saves / keeper.faced * 100).toFixed(1)}%` : "0.0%";
+  console.log(`  ${goalkeeperId}: faced ${keeper.faced}, saves ${keeper.saves} (${saveRate}), goals conceded ${keeper.goalsConceded}`);
+}
 console.log("Total goals per match distribution:");
 for (const [bucket, count] of Object.entries(report.goalDistribution)) {
   console.log(`  ${bucket.padStart(2)} goals:            ${count}`);

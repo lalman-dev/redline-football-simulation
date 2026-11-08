@@ -1,93 +1,150 @@
 # Engineering Decisions
 
-This document records the major technical decisions made while
-building the Football Match Engine.
+This document records the main technical decisions I made while building the Football Match Engine. I have included the reasoning behind each choice and how it fits into the overall project.
 
 ## D-001: TypeScript and Node.js
 
-**Decision:** Use TypeScript with Node.js as the initial development
-platform.
+**Decision:** I chose TypeScript with Node.js as the foundation for the engine.
 
-**Reason:**
+**Why:**
 
-- TypeScript provides static type checking.
-- Node.js allows the engine to run without a browser.
-- The engine can support headless simulations.
+- TypeScript helps catch errors through static type checking.
+- Node.js allows me to run matches without needing a browser.
+- It makes it possible to run multiple headless simulations for testing and calibration.
 
 ## D-002: Native ES Modules
 
-**Decision:** Use Node.js native ES modules with TypeScript
-NodeNext module configuration.
+**Decision:** I used Node.js native ES modules with TypeScript's NodeNext module configuration.
 
-**Reason:**
+**Why:**
 
-- Aligns with modern JavaScript module standards.
-- Supports a Node.js-compatible build.
-- Avoids unnecessary module conversion.
+- It follows the modern JavaScript module system.
+- It produces output that works directly with Node.js.
+- It avoids unnecessary module conversion or additional tooling.
 
 ## D-003: Strict Type Checking
 
-**Decision:** Enable TypeScript strict mode and
-noUncheckedIndexedAccess.
+**Decision:** I enabled TypeScript strict mode and `noUncheckedIndexedAccess`.
 
-**Reason:**
+**Why:**
 
-- Helps detect potential programming errors.
-- Requires explicit handling of potentially missing values.
-- Makes the engine more predictable and maintainable.
+- I wanted the compiler to catch as many potential issues as possible.
+- It forces me to handle values that might be missing.
+- It makes the code easier to maintain as the engine grows.
 
 ## D-004: Separate Source and Build Output
 
-**Decision:** Keep source code in src/ and compiled JavaScript
-in dist/.
+**Decision:** I keep the original code in `src/` and generated JavaScript in `dist/`.
 
-**Reason:**
+**Why:**
 
-- Keeps development files separate from generated output.
-- Makes the project structure easier to understand.
-- Prevents generated files from being committed.
+- It keeps development files separate from compiled output.
+- It makes the project structure easier to navigate.
+- It avoids mixing generated files with the source code.
 
 ## D-005: Incremental Development
 
-**Decision:** Build the engine in small, independently
-understandable milestones.
+**Decision:** I built the engine in smaller milestones instead of trying to implement every feature at once.
 
-**Reason:**
+**Why:**
 
-- Each feature can be tested before moving forward.
-- Changes remain easier to review and debug.
-- Engineering decisions remain explainable.
+- I can test individual features before moving on.
+- It makes bugs easier to isolate and fix.
+- It helps me understand and review the impact of each change.
 
-## D-006: Event-derived public statistics
+## D-006: Statistics Derived from Match Events
 
-**Decision:** Derive team and player statistics from the recorded event log.
+**Decision:** I decided to calculate public match and player statistics from the recorded event log.
 
-**Reason:** This keeps the API's figures auditable and prevents estimates from
-being presented as measured possession or player minutes. Statistics only cover
-events the engine currently models.
+**Why:**
 
-## D-007: Serializable deterministic snapshots
+- It gives me a consistent source for match statistics.
+- I can trace reported figures back to the events that produced them.
+- It reduces the risk of maintaining separate counters that become inconsistent.
 
-**Decision:** Snapshot the complete match state as JSON-compatible data,
-including the RNG state, and version the snapshot envelope.
+There are limitations to this approach. Statistics can only cover events currently represented by the engine. For example, possession and player minutes are reconstructed from the available event information rather than measured using real tracking data.
 
-**Reason:** Consumers can save and continue a match without reproducing hidden
-random-generator state. Restoring from untrusted input is outside the current
-API contract beyond basic envelope validation.
+## D-007: Deterministic Match Snapshots
 
-## D-008: Stoppage allowance from modeled interruptions
+**Decision:** I implemented versioned match snapshots that preserve the match state, including the random number generator state.
 
-**Decision:** Add deterministic allowances for goals, fouls/cards and
-active-play substitutions, tracked separately per half.
+**Why:**
 
-**Reason:** These are explicit interruption sources represented by match
-events. This is a limited allowance model, not a complete referee estimate of
-all lost time under Law 7.
+- I wanted to be able to save a match and continue it later.
+- Preserving the RNG state helps ensure that a restored match continues deterministically.
+- A versioned snapshot makes the saved format easier to identify and validate.
 
-## D-009: Shared live and headless defensive pressure
+I also added validation when restoring snapshots so that malformed match data is not accepted simply because it is valid JSON.
 
-**Decision:** Use one pressure probability based on the defending team's
-pressing setting in both execution modes.
+Cross-version snapshot migration is not currently supported.
 
-**Reason:** Headless calibration and live viewing should apply the same
-managerial setting under the same match state.
+## D-008: Stoppage Time Based on Match Interruptions
+
+**Decision:** I use deterministic time allowances for interruptions represented by match events, including goals, fouls, cards and active-play substitutions.
+
+**Why:**
+
+- These events interrupt normal play and should affect the match clock.
+- Tracking them separately for each half keeps the timing predictable.
+- It gives the simulation a basic stoppage-time mechanism without introducing additional randomness.
+
+This is still a simplified model. It does not account for every possible reason a referee might add time under Law 7.
+
+## D-009: Shared Defensive Pressure for Live and Headless Matches
+
+**Decision:** I use the same defensive-pressure calculation in both live matches and headless simulations, based on the defending team's pressing setting.
+
+**Why:**
+
+- I wanted the visualizer and background simulations to follow the same match logic.
+- Tactical settings should have consistent effects regardless of how a match is executed.
+- It makes calibration results more representative of the actual simulation.
+
+## D-010: Role-Based Formation Positioning
+
+**Decision:** I use player roles to determine formation width and positioning instead of distributing players across the pitch based only on their array order.
+
+**Why:**
+
+- Array-based positioning could place a striker in a wide position.
+- It could also place a winger too centrally.
+- Using roles gives players more appropriate positions based on their responsibilities.
+
+Fullbacks and wingers are assigned to wider lanes, while central players remain closer to the centre of the pitch.
+
+This also gives the shooting and passing systems more useful positional information.
+
+## D-011: Context-Aware Shooting and Passing Decisions
+
+**Decision:** I kept the ball carrier as the player responsible for shooting, but improved the decision-making around shooting and passing opportunities.
+
+**Why:**
+
+- I wanted player roles and attributes to influence attacking behaviour.
+- A striker should have more relevant shooting opportunities without forcing every attack to end with a striker taking the shot.
+- Passing decisions should consider more than just selecting a random teammate.
+
+The shooting model considers:
+
+- Player position and attacking role.
+- Distance from goal.
+- Shooting angle.
+- Nearby defensive pressure.
+- Relevant player attributes.
+
+Passing options are weighted using:
+
+- Distance to the receiver.
+- Forward progression.
+- Passing and technical ability.
+- Width and attacking role.
+
+One limitation is that the engine does not have a completely independent off-ball attacking system. The ball carrier remains the shooter, so these decisions are still part of a simplified possession model.
+
+---
+
+## Closing note
+
+These decisions reflect how I approached the project: keep the engine understandable, make the simulation reproducible, and build features that can be tested independently.
+
+Some mechanics are intentionally simplified, and I expect to revisit them as the simulation becomes more detailed. I have prioritised having a working and testable foundation over trying to model every aspect of a real football match.
