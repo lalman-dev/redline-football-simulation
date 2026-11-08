@@ -1,14 +1,14 @@
 import type { MatchState } from "./match-state.js";
 import { startMatch, startSecondHalf } from "./match.js";
-import { executeNextAction, executeDefensiveAction } from "./simulation.js";
+import {
+  executeNextAction,
+  executeDefensiveAction,
+  getDefensivePressureProbability,
+} from "./simulation.js";
 import { recordPhaseEvent } from "./phase-events.js";
 import { createRng } from "./rng.js";
 
 export const DEFAULT_MAX_ACTIONS = 5000;
-
-// A defensive challenge is attempted on roughly 1 in 4
-// attacking actions that retain possession.
-const DEFENSIVE_PRESSURE_PROBABILITY = 0.25;
 
 export interface SimulateMatchOptions {
   readonly kickoffTeamId: string;
@@ -55,7 +55,7 @@ export function simulateMatch(
 
       const pressureRng = createRng(state.rngState);
       const shouldApplyPressure =
-        pressureRng.next() < DEFENSIVE_PRESSURE_PROBABILITY;
+        pressureRng.next() < getDefensivePressureProbability(state);
 
       state = {
         ...state,
@@ -78,6 +78,11 @@ export function simulateMatch(
   runHalf("first-half");
 
   if (state.phase !== "half-time") {
+    if (state.phase === "full-time") {
+      return state.events.some((event) => event.type === "full-time")
+        ? state
+        : recordPhaseEvent(state, "full-time");
+    }
     throw new Error("First half ended unexpectedly.");
   }
 

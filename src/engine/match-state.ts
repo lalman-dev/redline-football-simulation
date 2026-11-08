@@ -33,7 +33,11 @@ export interface MatchState {
 
   readonly phase: MatchPhase;
   readonly elapsedSeconds: number;
+  readonly firstHalfAddedTimeSeconds: number;
+  readonly secondHalfAddedTimeSeconds: number;
   readonly score: MatchScore;
+  readonly yellowCards: Readonly<Record<PlayerId, number>>;
+  readonly dismissedPlayerIds: readonly PlayerId[];
 
   readonly possessionTeamId: TeamId | null;
   readonly ballCarrierId: PlayerId | null;

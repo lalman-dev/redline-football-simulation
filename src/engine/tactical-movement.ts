@@ -218,6 +218,26 @@ export function applyTacticalMovement(state: MatchState): MatchState {
     const isHome = context.teamId === state.homeTeam.id;
     const team = isHome ? state.homeTeam : state.awayTeam;
     const selection = isHome ? state.homeSelection : state.awaySelection;
+    const carrierPosition = state.playerPositions[state.ballCarrierId ?? ""] ?? state.ballPosition;
+    const supportPlayerId = context.hasPossession
+      ? selection.startingXI
+          .map((id) => team.squad.find((candidate) => candidate.id === id))
+          .filter(
+            (candidate): candidate is Player =>
+              candidate !== undefined &&
+              candidate.id !== state.ballCarrierId &&
+              candidate.primaryPosition !== "GK" &&
+              state.playerPositions[candidate.id] !== undefined,
+          )
+          .sort((a, b) => {
+            const aPosition = state.playerPositions[a.id]!;
+            const bPosition = state.playerPositions[b.id]!;
+            return (
+              Math.hypot(aPosition.x - carrierPosition.x, aPosition.y - carrierPosition.y) -
+              Math.hypot(bPosition.x - carrierPosition.x, bPosition.y - carrierPosition.y)
+            );
+          })[0]?.id
+      : undefined;
 
     for (const playerId of selection.startingXI) {
       const player = team.squad.find((candidate) => candidate.id === playerId);
@@ -236,11 +256,15 @@ export function applyTacticalMovement(state: MatchState): MatchState {
       const role = getRole(player);
       let target = getTeamTarget(state, context, player);
 
-      if (!context.hasPossession && role !== "goalkeeper") {
-        const carrierPosition =
-          state.playerPositions[state.ballCarrierId ?? ""] ??
-          state.ballPosition;
+      if (playerId === supportPlayerId) {
+        const direction = context.attacksRight ? 1 : -1;
+        target = {
+          x: clamp(carrierPosition.x + direction * 5, 2, PITCH_LENGTH - 2),
+          y: carrierPosition.y,
+        };
+      }
 
+      if (!context.hasPossession && role !== "goalkeeper") {
         const isDefender =
           role === "defender" || player.primaryPosition === "DM";
 

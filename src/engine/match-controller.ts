@@ -7,7 +7,11 @@ import {
   substitutePlayer as applySubstitution,
 } from "./match.js";
 
-import { executeNextAction, executeDefensiveAction } from "./simulation.js";
+import {
+  executeNextAction,
+  executeDefensiveAction,
+  getDefensivePressureProbability,
+} from "./simulation.js";
 
 import { recordPhaseEvent } from "./phase-events.js";
 import { createRng } from "./rng.js";
@@ -111,16 +115,8 @@ export function advanceMatch(
 
     const rng = createRng(match.rngState);
 
-    const defendingSelection =
-      possessionBeforeAction === match.homeTeam.id
-        ? match.awaySelection
-        : match.homeSelection;
-
-    const pressing = defendingSelection.tactics.pressing;
-
-    const pressureProbability = 0.12 + (pressing / 100) * 0.38;
-
-    const shouldApplyPressure = rng.next() < pressureProbability;
+    const shouldApplyPressure =
+      rng.next() < getDefensivePressureProbability(match);
 
     match = {
       ...match,

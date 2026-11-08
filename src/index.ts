@@ -10,6 +10,8 @@ export * from "./engine/simulation.js";
 
 // Manager controls
 export * from "./engine/match-controller.js";
+export * from "./engine/statistics.js";
+export * from "./engine/snapshot.js";
 
 // Supporting utilities
 export * from "./engine/clock.js";

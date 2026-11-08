@@ -88,7 +88,11 @@ describe("simulateMatch", () => {
     });
 
     expect(result.phase).toBe("full-time");
-    expect(result.elapsedSeconds).toBe(5400);
+    expect(result.elapsedSeconds).toBe(
+      5400 +
+        result.firstHalfAddedTimeSeconds +
+        result.secondHalfAddedTimeSeconds,
+    );
     expect(result.events.some((event) => event.type === "half-time")).toBe(
       true,
     );
@@ -107,6 +111,22 @@ describe("simulateMatch", () => {
     // Initial kickoff belongs to the home team.
     expect(kickoffs[0]?.teamId).toBe("home");
 
+    for (const kickoff of kickoffs) {
+      const team = kickoff.teamId === "home" ? result.homeTeam : result.awayTeam;
+      const selection = kickoff.teamId === "home"
+        ? result.homeSelection
+        : result.awaySelection;
+      const taker = team.squad.find((player) => player.id === kickoff.playerId);
+
+      expect(kickoff.playerId).toBeDefined();
+      expect(selection.startingXI).toContain(kickoff.playerId);
+      expect(taker?.primaryPosition).toBe("CM");
+      expect(kickoff.teamId === "home"
+        ? result.awayTeam.squad.some((player) => player.id === kickoff.playerId)
+        : result.homeTeam.squad.some((player) => player.id === kickoff.playerId)
+      ).toBe(false);
+    }
+
     // Find the second-half kickoff independently of goal restarts.
     const secondHalfKickoff = kickoffs.find((event) =>
       event.description.includes("second half"),
@@ -114,7 +134,9 @@ describe("simulateMatch", () => {
 
     expect(secondHalfKickoff).toBeDefined();
     expect(secondHalfKickoff?.teamId).toBe("away");
-    expect(secondHalfKickoff?.minute).toBe(45);
+    expect(secondHalfKickoff?.elapsedSeconds).toBe(
+      2700 + result.firstHalfAddedTimeSeconds,
+    );
 
     // Every goal must produce exactly one goal restart.
     const goals = result.events.filter((event) => event.type === "goal");

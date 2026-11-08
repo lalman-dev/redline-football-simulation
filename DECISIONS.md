@@ -57,3 +57,37 @@ understandable milestones.
 - Each feature can be tested before moving forward.
 - Changes remain easier to review and debug.
 - Engineering decisions remain explainable.
+
+## D-006: Event-derived public statistics
+
+**Decision:** Derive team and player statistics from the recorded event log.
+
+**Reason:** This keeps the API's figures auditable and prevents estimates from
+being presented as measured possession or player minutes. Statistics only cover
+events the engine currently models.
+
+## D-007: Serializable deterministic snapshots
+
+**Decision:** Snapshot the complete match state as JSON-compatible data,
+including the RNG state, and version the snapshot envelope.
+
+**Reason:** Consumers can save and continue a match without reproducing hidden
+random-generator state. Restoring from untrusted input is outside the current
+API contract beyond basic envelope validation.
+
+## D-008: Stoppage allowance from modeled interruptions
+
+**Decision:** Add deterministic allowances for goals, fouls/cards and
+active-play substitutions, tracked separately per half.
+
+**Reason:** These are explicit interruption sources represented by match
+events. This is a limited allowance model, not a complete referee estimate of
+all lost time under Law 7.
+
+## D-009: Shared live and headless defensive pressure
+
+**Decision:** Use one pressure probability based on the defending team's
+pressing setting in both execution modes.
+
+**Reason:** Headless calibration and live viewing should apply the same
+managerial setting under the same match state.

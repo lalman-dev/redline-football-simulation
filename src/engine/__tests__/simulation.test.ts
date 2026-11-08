@@ -8,6 +8,7 @@ import {
 import type { MatchState } from "../match-state.js";
 import type { Player, Team, TeamSelection } from "../types.js";
 import { createMatchPlayerPositions } from "../spatial.js";
+import { applyTacticalMovement } from "../tactical-movement.js";
 
 const attributes = {
   passing: 70,
@@ -94,6 +95,10 @@ function createState(seed = 12345): MatchState {
     phase: "first-half",
     elapsedSeconds: 0,
     score: { home: 0, away: 0 },
+    firstHalfAddedTimeSeconds: 0,
+    secondHalfAddedTimeSeconds: 0,
+    yellowCards: {},
+    dismissedPlayerIds: [],
     possessionTeamId: homeTeam.id,
     ballCarrierId: "home-player-11",
     ballPosition: { x: 52.5, y: 34 },
@@ -166,6 +171,60 @@ describe("getShootingProbability", () => {
     expect(() => getShootingProbability(state)).toThrow(
       "Cannot choose an action without possession.",
     );
+  });
+});
+
+describe("near-ball support and passing", () => {
+  it("selects a nearby teammate over a much farther option", () => {
+    let foundPass = false;
+
+    for (let seed = 1; seed <= 500 && !foundPass; seed += 1) {
+      const initial = createState(seed);
+      const positions = { ...initial.playerPositions };
+      positions["home-player-11"] = { x: 50, y: 34 };
+      positions["home-player-6"] = { x: 52, y: 34 };
+      positions["home-player-7"] = { x: 88, y: 58 };
+
+      for (const player of initial.homeSelection.startingXI) {
+        if (player !== "home-player-11" && player !== "home-player-6" && player !== "home-player-7") {
+          positions[player] = { x: 18, y: 8 };
+        }
+      }
+
+      const state = { ...initial, playerPositions: positions };
+      const next = executeNextAction(state);
+      const pass = next.events.find((event) => event.type === "pass");
+
+      if (pass) {
+        foundPass = true;
+        expect(pass.targetPlayerId).toBe("home-player-6");
+      }
+    }
+
+    expect(foundPass).toBe(true);
+  });
+
+  it("moves the closest teammate into a short support position", () => {
+    const state = createState();
+    const positions = { ...state.playerPositions };
+    positions["home-player-11"] = { x: 50, y: 34 };
+    positions["home-player-6"] = { x: 47, y: 34 };
+
+    for (const player of state.homeSelection.startingXI) {
+      if (player !== "home-player-11" && player !== "home-player-6") {
+        positions[player] = { x: 18, y: 8 };
+      }
+    }
+
+    const beforeDistance = 3;
+    const next = applyTacticalMovement({ ...state, playerPositions: positions });
+    const supportPosition = next.playerPositions["home-player-6"]!;
+    const afterDistance = Math.hypot(
+      supportPosition.x - 50,
+      supportPosition.y - 34,
+    );
+
+    expect(afterDistance).toBeLessThan(beforeDistance);
   });
 });
 

@@ -6,6 +6,14 @@ import { movePlayerTowards } from "./spatial.js";
 
 export type SimulationAction = "pass" | "carry" | "tackle" | "shoot";
 
+export function getDefensivePressureProbability(state: MatchState): number {
+  if (!state.possessionTeamId) return 0;
+  const defendingSelection = state.possessionTeamId === state.homeTeam.id
+    ? state.awaySelection
+    : state.homeSelection;
+  return 0.16 + (defendingSelection.tactics.pressing / 100) * 0.2;
+}
+
 interface ActionDecision {
   readonly action: SimulationAction;
   readonly rngState: number;
@@ -142,7 +150,7 @@ export function getShootingProbability(state: MatchState): number {
   const angleFactor = getShotAngleFactor(state);
 
   const probability =
-    baseProbability *
+    baseProbability * 0.7 *
     qualityMultiplier *
     decisionMultiplier *
     mentalityMultiplier *
@@ -195,7 +203,13 @@ export function chooseNextAction(state: MatchState): SimulationAction {
   return decideNextAction(state).action;
 }
 
-function getReceiverScore(player: Player, width: number): number {
+function getReceiverScore(
+  player: Player,
+  width: number,
+  position: { readonly x: number; readonly y: number },
+  carrierPosition: { readonly x: number; readonly y: number },
+  attacksRight: boolean,
+): number {
   const technicalScore =
     player.attributes.passing + player.attributes.positioning;
 
@@ -218,7 +232,15 @@ function getReceiverScore(player: Player, width: number): number {
       ? -widthPreference * 8
       : 0;
 
-  return technicalScore + widthBonus;
+  const distance = Math.hypot(
+    position.x - carrierPosition.x,
+    position.y - carrierPosition.y,
+  );
+  const forwardDistance = (position.x - carrierPosition.x) *
+    (attacksRight ? 1 : -1);
+
+  // Prefer a nearby passing option; technical quality breaks close calls.
+  return -distance * 1.5 + technicalScore * 0.25 + widthBonus * 0.25 + forwardDistance * 0.15;
 }
 
 export function executeNextAction(state: MatchState): MatchState {
@@ -240,6 +262,8 @@ export function executeNextAction(state: MatchState): MatchState {
   const isHome = state.possessionTeamId === state.homeTeam.id;
   const attackingTeam = isHome ? state.homeTeam : state.awayTeam;
   const selection = isHome ? state.homeSelection : state.awaySelection;
+  const carrierPosition = state.playerPositions[state.ballCarrierId ?? ""] ?? state.ballPosition;
+  const attacksRight = state.phase === "first-half" ? isHome : !isHome;
 
   const receiver = selection.startingXI
     .map((id) => attackingTeam.squad.find((player) => player.id === id))
@@ -247,12 +271,25 @@ export function executeNextAction(state: MatchState): MatchState {
       (player): player is Player =>
         player !== undefined &&
         player.id !== state.ballCarrierId &&
-        player.primaryPosition !== "GK",
+        player.primaryPosition !== "GK" &&
+        state.playerPositions[player.id] !== undefined,
     )
     .sort(
       (a, b) =>
-        getReceiverScore(b, selection.tactics.width) -
-        getReceiverScore(a, selection.tactics.width),
+        getReceiverScore(
+          b,
+          selection.tactics.width,
+          state.playerPositions[b.id]!,
+          carrierPosition,
+          attacksRight,
+        ) -
+        getReceiverScore(
+          a,
+          selection.tactics.width,
+          state.playerPositions[a.id]!,
+          carrierPosition,
+          attacksRight,
+        ),
     )[0];
 
   if (!receiver) {

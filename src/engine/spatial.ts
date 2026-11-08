@@ -41,6 +41,31 @@ function selectLine(
     .slice(0, count);
 }
 
+function allocateFormationLines(
+  outfieldCount: number,
+  formation: TeamSelection["formation"],
+): { defenders: number; midfielders: number; forwards: number } {
+  const weights = [formation.defenders, formation.midfielders, formation.forwards];
+  const total = weights.reduce((sum, value) => sum + value, 0);
+  const exact = weights.map((weight) => (weight / total) * outfieldCount);
+  const counts = exact.map(Math.floor);
+
+  while (counts.reduce((sum, value) => sum + value, 0) < outfieldCount) {
+    let best = 0;
+    for (let index = 1; index < exact.length; index += 1) {
+      if (exact[index]! - counts[index]! > exact[best]! - counts[best]!) best = index;
+    }
+    counts[best]! += 1;
+    exact[best]! = counts[best]!;
+  }
+
+  return {
+    defenders: counts[0]!,
+    midfielders: counts[1]!,
+    forwards: counts[2]!,
+  };
+}
+
 /**
  * Generates deterministic starting positions for the selected XI.
  * Coordinates use metres on a 105 x 68 pitch.
@@ -60,8 +85,8 @@ export function createTeamPlayerPositions(
     return player;
   });
 
-  if (players.length !== 11) {
-    throw new Error("A team must have exactly eleven selected players.");
+  if (players.length < 7 || players.length > 11) {
+    throw new Error("A team must have between seven and eleven active players.");
   }
 
   const goalkeepers = players.filter(
@@ -75,14 +100,18 @@ export function createTeamPlayerPositions(
   const goalkeeper = goalkeepers[0]!;
   const outfield = players.filter((player) => player.id !== goalkeeper.id);
 
-  const {
-    defenders: defenderCount,
-    midfielders: midfielderCount,
-    forwards: forwardCount,
-  } = selection.formation;
+  if (
+    selection.formation.defenders +
+      selection.formation.midfielders +
+      selection.formation.forwards !== 10
+  ) {
+    throw new Error("Formation must contain exactly ten outfield players.");
+  }
+
+  const { defenders: defenderCount, midfielders: midfielderCount, forwards: forwardCount } =
+    allocateFormationLines(outfield.length, selection.formation);
 
   if (
-    defenderCount + midfielderCount + forwardCount !== 10 ||
     defenderCount < 1 ||
     midfielderCount < 1 ||
     forwardCount < 1

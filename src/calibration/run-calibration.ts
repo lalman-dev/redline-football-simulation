@@ -29,7 +29,7 @@ for (let index = 0; index < MATCH_COUNT; index += 1) {
     });
 
     const result = simulateMatch(initialState, {
-      kickoffTeamId: homeTeam.id,
+      kickoffTeamId: index % 2 === 0 ? homeTeam.id : awayTeam.id,
     });
 
     if (result.phase !== "full-time") {
@@ -77,11 +77,22 @@ console.log(`Total shots:             ${report.totalShots}`);
 console.log(`Average shots per match: ${report.averageShots.toFixed(2)}`);
 console.log(`Shots on target:         ${report.shotsOnTarget}`);
 console.log(`Total saves:             ${report.totalSaves}`);
+console.log("Total goals per match distribution:");
+for (const [bucket, count] of Object.entries(report.goalDistribution)) {
+  console.log(`  ${bucket.padStart(2)} goals:            ${count}`);
+}
+console.log("Most common scorelines:");
+for (const { scoreline, matches } of report.commonScorelines) {
+  console.log(`  ${scoreline}: ${matches}`);
+}
 
 console.log("\n--- Match activity ---");
 console.log(`Total passes:            ${report.totalPasses}`);
 console.log(`Successful passes:       ${report.successfulPasses}`);
 console.log(`Total tackles:           ${report.totalTackles}`);
 console.log(`Successful tackles:      ${report.successfulTackles}`);
+console.log(`Fouls:                   ${report.totalFouls}`);
+console.log(`Yellow cards:            ${report.totalYellowCards}`);
+console.log(`Red cards:               ${report.totalRedCards}`);
 
 console.log("\n==================================\n");

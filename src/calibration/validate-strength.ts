@@ -89,7 +89,7 @@ function runAttributeTest(attribute: Attribute, boostedSide: "home" | "away") {
       });
 
       const result = simulateMatch(initialState, {
-        kickoffTeamId: homeTeam.id,
+        kickoffTeamId: index % 2 === 0 ? homeTeam.id : awayTeam.id,
       });
 
       if (result.phase !== "full-time") {

@@ -10,7 +10,8 @@
     "build": "npm run build:engine && npm run build:web",
     "test": "vitest run",
     "calibrate": "npm run build:engine && node dist/calibration/run-calibration.js",
-    "validate:strength": "npm run build:engine && node dist/calibration/validate-strength.js"
+    "validate:strength": "npm run build:engine && node dist/calibration/validate-strength.js",
+    "validate:tactics": "npm run build:engine && node dist/calibration/validate-tactics.js"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.5",

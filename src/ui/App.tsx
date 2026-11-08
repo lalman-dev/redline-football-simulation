@@ -691,11 +691,17 @@ function MatchStatistics({ events }: { events: readonly MatchEvent[] }) {
   const shots = events.filter((event) => event.type === "shot").length;
   const passes = events.filter((event) => event.type === "pass").length;
   const saves = events.filter((event) => event.type === "save").length;
+  const fouls = events.filter((event) => event.type === "foul").length;
+  const yellowCards = events.filter((event) => event.type === "yellow-card").length;
+  const redCards = events.filter((event) => event.type === "red-card").length;
   const stats = [
     { label: "Total Goals", value: goals, highlight: true },
     { label: "Shots", value: shots },
     { label: "Passes", value: passes },
     { label: "Saves", value: saves },
+    { label: "Fouls", value: fouls },
+    { label: "Yellow Cards", value: yellowCards },
+    { label: "Red Cards", value: redCards },
   ];
 
   return (
@@ -769,7 +775,11 @@ function MatchCommentary({ events }: { events: readonly MatchEvent[] }) {
                     className={`font-mono text-[9px] tracking-wider ${
                       event.type === "goal"
                         ? "text-[#b5f36a]"
-                        : "text-[#aebbaa]"
+                        : event.type === "yellow-card"
+                          ? "text-amber-300"
+                          : event.type === "red-card"
+                            ? "text-red-400"
+                            : "text-[#aebbaa]"
                     }`}
                   >
                     {event.type.replaceAll("-", " ").toUpperCase()}

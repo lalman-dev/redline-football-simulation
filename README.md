@@ -1,105 +1,77 @@
-# Interview project: build a football (soccer) match engine for a management game
+# REDLINE FOOTBALL ENGINE
 
-Version 1.0 · November 2026
+A TypeScript football match engine with a seeded simulation, a React/Vite match visualizer, manager controls, and a calibration harness. The engine is intentionally a simulation prototype; it is not a complete implementation of the IFAB Laws of the Game.
 
-Thank you for taking the time. This document describes the take-home project, what we will look at and how we will score it. Please read all of it before you start.
-
-**The short version.** You build your own football match engine. It simulates a full 11vs11 90-minute plus injury time match between two teams/squads and returns a result, a detailed event log and statistics. You also give it an API that a management game could use, a visualizer, and evidence that its numbers look like real football. We judge it on the five things that matter most for a management game:
-
-1. **Does it follow the rules of football (IFAB Laws of the Game 2026/27)?**
-2. **Do its statistics match real football?** (distributions, not just averages)
-3. **Can it actually be plugged into a game?** (an API that is complete enough to build a game on)
-4. **Does it look like football visually?**
-5. **Do a manager's decisions, player attributes, and tactics matter?** (squad, formation, tactics, substitutions, fatigue, injuries, no dead options, no dominant tactic)
-
-## The game and what we look for
-
-Imagine a football management game (e.g. Football Manager 27). The match engine decides what happens in a match. Players never control individual footballers: they choose squads, formations and tactics, then watch or skip the match and live with the result. Over a long career a player sees thousands of matches, so small biases, rare crashes and options that do nothing are all very visible.
-
-What we want to see in you:
-
-- How you turn an open-ended modelling problem into a first version that works.
-- How you use data to check a model instead of trusting intuition.
-- How you design an interface that somebody else will build on.
-- Taste and Judgment: whether the result plays and looks like football.
-
-## What a management game needs from the engine
-
-**Before the match**
-
-- Take two teams/squads (each player with attributes), a formation, tactics and a random seed, and refuse illegal lineups.
-
-**During the match**
-
-- Run to a given minute or the next key event, pause and resume.
-- Let the manager substitute and change tactics or formation while the match runs.
-- Play at any speed: watch live, fast-forward or skip to the result.
-
-**After the match**
-
-- Return the result, a full event log, team and player statistics.
-- Hand back what the game needs to carry on: fatigue and minutes played, injuries, cards and suspensions.
-- Make results explainable: a manager should be able to see why they won or lost.
-
-**Across a season**
-
-- Simulate thousands of other matches in the background (headless), quickly.
-- Replay any match exactly from its inputs and seed; saving and loading a game must not change results.
-- Cope with many leagues and thousands of clubs, with squads that keep changing.
-- Never crash or hang on matchday.
-
-## Ground rules
-
-- **Time:** about 10 hours within 3 days.
-- **Scope:** we know this project cannot be fully completed in the time you have. The priorities you set and the abstractions you choose are exactly what we are trying to assess. Try to get a working first version that you can improve, rather than a half-finished ambitious design.
-- **Focus:** spend your time building and tuning the engine. We do not need reports, lists or write-ups, only a short README that tells us how to build, run and use it.
-- **Tools:** any language; it must run on Windows, Linux, Mac OS with a simple build process. AI assistants and all other tools are allowed, but work on your own without sharing code with anyone else.
-- **Open source projects:** you may build on existing open-source football match engines, libraries and code. The licences must allow redistribution. We judge the final result and your own contribution, so be ready to explain the reused parts too.
-- **Laws of the game:** the official [IFAB Laws of the Game 2026/27](https://www.theifab.com/laws-of-the-game-documents/?language=all&year=2026%2F27) are the reference for the rules.
-
-## Deliverables
-
-1. **Engine** that simulates a match between two squads.
-2. **Library API** for a management game.
-3. **Visualizer** that shows a match. Realistic visualization matters.
-4. **A short README:** how to build, run and use the engine and its API.
-
-We will get back to you once we have reviewed your submission.
-
-
----
-
-## Development Setup
-
-### Requirements
+## Requirements and commands
 
 - Node.js 22 or later
 - npm
 
-### Installation
-
-Clone the repository and install dependencies:
-
 ```bash
 npm ci
+npm run dev                 # start the visualizer
+npm test                    # run the test suite
+npm run build               # compile the engine and production visualizer
+npm run calibrate           # simulate 1,000 calibration matches
+npm run validate:strength   # compare individual attribute boosts
+npm run validate:tactics    # compare four tactical styles head-to-head
 ```
 
-### Build
+## Engine API
 
-Compile the TypeScript source:
+The TypeScript public entry point is `src/index.ts`; `npm run build:engine` emits Node.js ES modules under `dist/`.
 
-```bash
-npm run build
+```ts
+import {
+  createMatchState,
+  simulateMatch,
+  getMatchStatistics,
+  snapshotMatch,
+  restoreMatch,
+} from "./dist/index.js";
+
+const initial = createMatchState({
+  homeTeam, awayTeam, homeSelection, awaySelection, seed: 12345,
+});
+const result = simulateMatch(initial, { kickoffTeamId: homeTeam.id });
+const stats = getMatchStatistics(result);
+
+const saved = snapshotMatch(result);
+const restored = restoreMatch(JSON.parse(JSON.stringify(saved)));
 ```
 
-The generated JavaScript files are placed in `dist/`.
+The controller API (`createMatchController`, `advanceMatch`, `pauseMatch`, `resumeMatch`, `changeTeamTactics`, `changeTeamFormation`, and `makeSubstitution`) supports live matches. `simulateMatch` runs headlessly. Match snapshots include the event log, match state, and RNG state for deterministic continuation. Statistics are derived from recorded events; no possession or playing-time estimates are fabricated.
 
-### Project Structure
+## Architecture
 
-```text
-src/       TypeScript source code
-dist/      Generated JavaScript (not committed)
-```
+- `src/engine/match.ts`: match setup, actions, scoring, substitutions and state transitions.
+- `src/engine/simulation.ts`: action selection, receiver selection and defensive pressure.
+- `src/engine/match-runner.ts`: headless match loop.
+- `src/engine/match-controller.ts`: live manager controls.
+- `src/engine/spatial.ts` and `tactical-movement.ts`: pitch positions and movement.
+- `src/calibration/`: seeded fixtures, aggregate metrics and attribute experiments.
+- `src/ui/`: React visualizer, which renders engine state and dispatches controller actions.
 
-The match engine implementation and additional usage instructions
-will be documented as development progresses.
+## Implemented behavior
+
+- Validated starting lineups, formations and tactical ranges.
+- Seeded random actions and reproducible match runs.
+- First-half, second-half and full-time transitions with deterministic time allowance for goals, fouls/cards and active-play substitutions.
+- Passes, carries, tackles, shots, saves, goals and substitutions.
+- CM-first kickoff choice (then DM, AM and another outfield player); kickoff taker, ball carrier and centre position are aligned.
+- Player attributes affect relevant actions. Stamina reduces performance over match time; strength affects tackle duels; dribbling affects carrying and defensive challenges.
+- Tactics affect action selection, movement and defensive pressure. Live and headless modes use the same pressure probability.
+- Fouls during tackle attempts award a free kick; yellow cards, direct red cards and second-yellow dismissals are recorded. Sent-off players leave the active XI, and play ends if a dismissal leaves fewer than seven players.
+- Event-derived team and player statistics, plus serializable match snapshot and restore.
+
+## Simplified rules and limitations
+
+- Added time currently uses fixed increments for goals, fouls, disciplinary sanctions and active-play substitutions. It does not model every cause or a referee-announced minimum.
+- Fouls are only considered during tackle attempts, and card severity is probabilistic. The model does not yet implement advantage, DOGSO assessment, offside, penalties, corners, throw-ins, goal kicks, injuries or suspension carry-over.
+- Fatigue is a performance adjustment based on match time and stamina, not a per-player workload record; player minutes and season carry-over are not available.
+- The event simulation abstracts continuous play. Passing and movement are simplified; it does not implement a full spatial ball-flight, offside-line or advantage model.
+- Calibration uses synthetic teams. It does not compare against a sourced real-world match dataset, and current reports are not evidence of full statistical realism.
+- Formation and tactics affect the simulation. A small tactic-versus-tactic experiment is available, but its results are not strong evidence that no tactic is dominant.
+- Snapshot restore validates the basic envelope and assumes snapshots are trusted data from this engine version.
+
+The engine should therefore be treated as an extensible prototype, not an IFAB-compliant referee or a production season simulator.

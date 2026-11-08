@@ -15,6 +15,11 @@ export type MatchEventType =
   | "save"
   | "goal"
   | "substitution"
+  | "foul"
+  | "free-kick"
+  | "yellow-card"
+  | "red-card"
+  | "abandonment"
   | "half-time"
   | "full-time";
 

@@ -35,6 +35,15 @@ describe("getClockTransition", () => {
     });
   });
 
+  it("extends each half by deterministic added time", () => {
+    expect(getClockTransition(2740, 40, 60).phase).toBe("half-time");
+    expect(getClockTransition(2741, 40, 60).phase).toBe("second-half");
+    expect(getClockTransition(5500, 40, 60)).toEqual({
+      phase: "full-time",
+      elapsedSeconds: 5500,
+    });
+  });
+
   it("rejects invalid elapsed time", () => {
     expect(() => getClockTransition(-1)).toThrow(RangeError);
     expect(() => getClockTransition(1.5)).toThrow(RangeError);
@@ -85,5 +94,9 @@ describe("capActionDuration", () => {
 
   it("allows actions immediately after the second-half kickoff", () => {
     expect(capActionDuration(2700, 5, "second-half")).toBe(5);
+  });
+
+  it("allows active play through first-half added time", () => {
+    expect(capActionDuration(2728, 5, "first-half", 30, 0)).toBe(2);
   });
 });

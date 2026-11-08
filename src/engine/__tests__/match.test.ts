@@ -8,6 +8,7 @@ import {
   startMatch,
   startSecondHalf,
   substitutePlayer,
+  getTackleSuccessProbability,
 } from "../match.js";
 import type { Player, Team, TeamSelection } from "../types.js";
 
@@ -166,7 +167,11 @@ describe("startMatch", () => {
     const match = startMatch(initialState, homeTeam.id);
 
     expect(match.possessionTeamId).toBe(homeTeam.id);
-    expect(match.ballCarrierId).toBe("home-player-11");
+    expect(match.ballCarrierId).toBe("home-player-6");
+    expect(match.events[0]?.playerId).toBe(match.ballCarrierId);
+    expect(homeTeam.squad.find((player) => player.id === match.ballCarrierId)?.primaryPosition).toBe("CM");
+    expect(match.playerPositions[match.ballCarrierId!]).toEqual(match.ballPosition);
+    expect(awayTeam.squad.some((player) => player.id === match.ballCarrierId)).toBe(false);
     expect(match.events).toHaveLength(1);
     expect(match.events[0]?.type).toBe("kickoff");
   });
@@ -212,7 +217,11 @@ describe("startSecondHalf", () => {
     expect(match.elapsedSeconds).toBe(2700);
     expect(match.score).toEqual({ home: 1, away: 0 });
     expect(match.possessionTeamId).toBe(awayTeam.id);
-    expect(match.ballCarrierId).toBe("away-player-11");
+    expect(match.ballCarrierId).toBe("away-player-6");
+    expect(match.events[1]?.playerId).toBe(match.ballCarrierId);
+    expect(awayTeam.squad.find((player) => player.id === match.ballCarrierId)?.primaryPosition).toBe("CM");
+    expect(match.playerPositions[match.ballCarrierId!]).toEqual(match.ballPosition);
+    expect(homeTeam.squad.some((player) => player.id === match.ballCarrierId)).toBe(false);
     expect(match.events).toHaveLength(2);
     expect(match.events[1]?.minute).toBe(45);
     expect(match.events[1]?.elapsedSeconds).toBe(2700);
@@ -311,7 +320,7 @@ describe("makePass", () => {
     const passEvent = nextState.events[1];
 
     expect(passEvent?.type).toBe("pass");
-    expect(passEvent?.playerId).toBe("home-player-11");
+    expect(passEvent?.playerId).toBe("home-player-6");
     expect(passEvent?.targetPlayerId).toBe("home-player-10");
     expect(nextState.elapsedSeconds).toBeGreaterThan(0);
     expect(nextState.elapsedSeconds).toBeLessThanOrEqual(4);
@@ -350,7 +359,7 @@ describe("makePass", () => {
   it("rejects passing to the same player", () => {
     const state = createStartedMatch(12345);
 
-    expect(() => makePass(state, "home-player-11")).toThrow(
+    expect(() => makePass(state, "home-player-6")).toThrow(
       "A player cannot pass to themselves.",
     );
   });
@@ -442,7 +451,7 @@ describe("makeTackle", () => {
 
     expect(tackleEvent?.type).toBe("tackle");
     expect(tackleEvent?.playerId).toBe("away-player-2");
-    expect(tackleEvent?.targetPlayerId).toBe("home-player-11");
+    expect(tackleEvent?.targetPlayerId).toBe("home-player-6");
     expect(nextState.elapsedSeconds).toBeGreaterThan(0);
     expect(nextState.elapsedSeconds).toBeLessThanOrEqual(4);
   });
@@ -457,8 +466,104 @@ describe("makeTackle", () => {
       expect(nextState.ballCarrierId).toBe("away-player-2");
     } else {
       expect(nextState.possessionTeamId).toBe("home");
-      expect(nextState.ballCarrierId).toBe("home-player-11");
+      expect(nextState.ballCarrierId).toBe("home-player-6");
     }
+  });
+
+  it("awards a free kick to the fouled team", () => {
+    let result: ReturnType<typeof makeTackle> | undefined;
+    for (let seed = 1; seed <= 500 && !result; seed += 1) {
+      const candidate = makeTackle(createStartedMatch(seed), "away-player-2");
+      if (candidate.events.some((event) => event.type === "foul")) result = candidate;
+    }
+
+    expect(result).toBeDefined();
+    expect(result?.possessionTeamId).toBe("home");
+    expect(result?.events.some((event) => event.type === "free-kick" && event.teamId === "home")).toBe(true);
+  });
+
+  it("sends off a player for a second yellow and removes them from the active XI", () => {
+    let result: ReturnType<typeof makeTackle> | undefined;
+    for (let seed = 1; seed <= 3000 && !result; seed += 1) {
+      const started = createStartedMatch(seed);
+      const candidate = makeTackle({
+        ...started,
+        yellowCards: { "away-player-2": 1 },
+      }, "away-player-2");
+      if (candidate.dismissedPlayerIds.includes("away-player-2")) result = candidate;
+    }
+
+    expect(result).toBeDefined();
+    expect(result?.awaySelection.startingXI).not.toContain("away-player-2");
+    expect(result?.playerPositions["away-player-2"]).toBeUndefined();
+    expect(result?.events.some((event) => event.type === "yellow-card")).toBe(true);
+    expect(result?.events.some((event) => event.type === "red-card")).toBe(true);
+    expect(result?.awaySelection.startingXI).toHaveLength(10);
+  });
+
+  it("ends the match when a dismissal leaves a team below seven players", () => {
+    let result: ReturnType<typeof makeTackle> | undefined;
+    for (let seed = 1; seed <= 3000 && !result; seed += 1) {
+      const started = createStartedMatch(seed);
+      const activeIds = started.awaySelection.startingXI.slice(0, 7);
+      const activeSet = new Set(activeIds);
+      const playerPositions = Object.fromEntries(
+        Object.entries(started.playerPositions).filter(([id]) =>
+          !id.startsWith("away-") || activeSet.has(id),
+        ),
+      );
+      const reduced = {
+        ...started,
+        awaySelection: { ...started.awaySelection, startingXI: activeIds },
+        playerPositions,
+        yellowCards: { "away-player-2": 1 },
+      };
+      const candidate = makeTackle(reduced, "away-player-2");
+      if (candidate.events.some((event) => event.type === "abandonment")) result = candidate;
+    }
+
+    expect(result?.phase).toBe("full-time");
+    expect(result?.awaySelection.startingXI).toHaveLength(6);
+    expect(result?.possessionTeamId).toBeNull();
+  });
+
+  it("applies a direct red card for a severe foul", () => {
+    const homeBase = createTeam("home");
+    const awayBase = createTeam("away");
+    const homeTeam = {
+      ...homeBase,
+      squad: homeBase.squad.map((player) => player.id === "home-player-6"
+        ? { ...player, attributes: { ...player.attributes, dribbling: 100 } }
+        : player),
+    };
+    const awayTeam = {
+      ...awayBase,
+      squad: awayBase.squad.map((player) => player.id === "away-player-2"
+          ? { ...player, attributes: { ...player.attributes, tackling: 1, decisionMaking: 1 } }
+        : player),
+    };
+    const homeSelection = createSelection(homeTeam);
+    const awaySelection = createSelection(awayTeam);
+    let result: ReturnType<typeof makeTackle> | undefined;
+
+    for (let seed = 1; seed <= 5000 && !result; seed += 1) {
+      const initial = createMatchState({
+        homeTeam,
+        awayTeam,
+        homeSelection,
+        awaySelection,
+        seed,
+      });
+      const candidate = makeTackle(startMatch(initial, "home"), "away-player-2");
+      if (
+        candidate.events.some((event) => event.type === "red-card") &&
+        !candidate.events.some((event) => event.type === "yellow-card")
+      ) result = candidate;
+    }
+
+    expect(result).toBeDefined();
+    expect(result?.dismissedPlayerIds).toContain("away-player-2");
+    expect(result?.awaySelection.startingXI).toHaveLength(10);
   });
 
   it("produces deterministic results with the same seed", () => {
@@ -481,6 +586,31 @@ describe("makeTackle", () => {
 
     expect(() => makeTackle(state, "home-player-2")).toThrow(
       "Tackler must be an active outfield player.",
+    );
+  });
+});
+
+describe("player physical attributes", () => {
+  const carrier = createPlayer("carrier", "ST");
+  const balancedTackler = createPlayer("balanced", "CB");
+
+  it("uses strength in tackle duels", () => {
+    const stronger = {
+      ...balancedTackler,
+      attributes: { ...attributes, strength: 90 },
+    };
+    expect(getTackleSuccessProbability(stronger, carrier, 1800)).toBeGreaterThan(
+      getTackleSuccessProbability(balancedTackler, carrier, 1800),
+    );
+  });
+
+  it("reduces performance late for low-stamina players", () => {
+    const tired = {
+      ...balancedTackler,
+      attributes: { ...attributes, stamina: 20 },
+    };
+    expect(getTackleSuccessProbability(tired, carrier, 5400)).toBeLessThan(
+      getTackleSuccessProbability(tired, carrier, 0),
     );
   });
 });
@@ -569,7 +699,7 @@ describe("match clock boundaries", () => {
       elapsedSeconds: 2698,
     };
 
-    const nextState = makePass(nearHalfTime, "home-player-6");
+    const nextState = makePass(nearHalfTime, "home-player-10");
 
     expect(nextState.elapsedSeconds).toBe(2700);
     expect(nextState.phase).toBe("half-time");
@@ -686,6 +816,7 @@ describe("substitutePlayer", () => {
 
     expect(nextState.substitutionsUsed.home).toBe(1);
     expect(nextState.substitutionsUsed.away).toBe(0);
+    expect(nextState.firstHalfAddedTimeSeconds).toBe(30);
   });
 
   it("rejects a player who is not on the pitch", () => {
@@ -734,7 +865,7 @@ describe("substitutePlayer", () => {
     const nextState = substitutePlayer(
       state,
       homeTeam.id,
-      "home-player-11",
+      "home-player-6",
       "home-player-16",
     );
 
@@ -757,6 +888,8 @@ describe("substitutePlayer", () => {
 
     expect(nextState.substitutionsUsed.home).toBe(1);
     expect(nextState.substitutionWindowsUsed.home).toBe(0);
+    expect(nextState.firstHalfAddedTimeSeconds).toBe(0);
+    expect(nextState.secondHalfAddedTimeSeconds).toBe(0);
   });
 
   it("counts multiple substitutions in the same window as one opportunity", () => {

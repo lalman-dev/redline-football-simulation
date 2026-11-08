@@ -12,6 +12,9 @@ export interface MatchMetrics {
   readonly successfulPasses: number;
   readonly tackles: number;
   readonly successfulTackles: number;
+  readonly fouls: number;
+  readonly yellowCards: number;
+  readonly redCards: number;
 }
 
 export interface CalibrationReport {
@@ -31,6 +34,11 @@ export interface CalibrationReport {
   readonly successfulPasses: number;
   readonly totalTackles: number;
   readonly successfulTackles: number;
+  readonly totalFouls: number;
+  readonly totalYellowCards: number;
+  readonly totalRedCards: number;
+  readonly goalDistribution: Readonly<Record<string, number>>;
+  readonly commonScorelines: readonly { readonly scoreline: string; readonly matches: number }[];
 }
 
 export function collectMatchMetrics(state: MatchState): MatchMetrics {
@@ -53,6 +61,9 @@ export function collectMatchMetrics(state: MatchState): MatchMetrics {
     tackles: tackles.length,
     successfulTackles: tackles.filter((event) => event.outcome === "successful")
       .length,
+    fouls: state.events.filter((event) => event.type === "foul").length,
+    yellowCards: state.events.filter((event) => event.type === "yellow-card").length,
+    redCards: state.events.filter((event) => event.type === "red-card").length,
   };
 }
 
@@ -77,6 +88,18 @@ export function createCalibrationReport(
   const draws = matchesPlayed - homeWins - awayWins;
 
   const totalGoals = metrics.reduce((sum, match) => sum + match.totalGoals, 0);
+
+  const goalDistribution: Record<string, number> = {
+    "0": 0, "1": 0, "2": 0, "3": 0, "4": 0, "5+": 0,
+  };
+  const scorelines = new Map<string, number>();
+  for (const match of results) {
+    const bucket = match.score.home + match.score.away;
+    const key = bucket >= 5 ? "5+" : String(bucket);
+    goalDistribution[key] = (goalDistribution[key] ?? 0) + 1;
+    const scoreline = `${match.score.home}-${match.score.away}`;
+    scorelines.set(scoreline, (scorelines.get(scoreline) ?? 0) + 1);
+  }
 
   const totalShots = metrics.reduce((sum, match) => sum + match.shots, 0);
 
@@ -108,5 +131,13 @@ export function createCalibrationReport(
       (sum, match) => sum + match.successfulTackles,
       0,
     ),
+    totalFouls: metrics.reduce((sum, match) => sum + match.fouls, 0),
+    totalYellowCards: metrics.reduce((sum, match) => sum + match.yellowCards, 0),
+    totalRedCards: metrics.reduce((sum, match) => sum + match.redCards, 0),
+    goalDistribution,
+    commonScorelines: [...scorelines]
+      .map(([scoreline, matches]) => ({ scoreline, matches }))
+      .sort((a, b) => b.matches - a.matches || a.scoreline.localeCompare(b.scoreline))
+      .slice(0, 10),
   };
 }
