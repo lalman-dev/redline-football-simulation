@@ -113,6 +113,8 @@ It currently calculates:
 - Assists.
 - Possession percentages.
 
+The full-time UI report also derives player ratings and Man of the Match from the recorded match events. These are prototype summaries, not an independently validated professional rating model. The timeline, statistics and report are rebuilt from the current match state.
+
 Possession is reconstructed from the time between consecutive events and the inferred possessor after each event. The two teams' percentages add up to 100%, but this is an approximation based on the simulation's event model, not tracking-data-based possession.
 
 Player minutes are calculated from event timestamps and adjusted for substitutions and dismissals. They are rounded to one decimal place.
@@ -143,7 +145,26 @@ I also added separate experiments to compare player attributes, tactical styles 
 
 These tests help identify changes in simulation behaviour and possible regressions. The teams and results are synthetic, so I do not treat the calibration output as proof that the engine matches real-world football statistics.
 
-**Current limitation:** The synthetic fixtures still produce more penalty awards than I would expect in a real match. I have kept penalty and open-play conversion separate in the reports while investigating the spatial and foul mechanics.
+**Current limitation:** The latest 1,000-match calibration averages **5.49 goals and 4.135 penalties per match**. It records 3,187 penalty goals, 2,300 open-play goals and 7.6% open-play shot conversion. The broad prototype target of about 2.2–3.2 goals per match is not met. The spatial interception change reduced the previous centre-back interception concentration, but increased shots and goals in this calibration. No probability changes were made as part of finalisation. These figures are regression measurements from synthetic fixtures, not a real-world benchmark.
+
+## Match lifecycle and session seeds
+
+The UI session factory creates fresh teams, match state and controller for the initial match and each New Match action. It obtains one 32-bit seed from the browser crypto API and passes that seed into `createMatchState`. The engine itself remains deterministic: the same inputs and explicit seed reproduce the same match, and the RNG state is included in snapshots for continuation. Headless callers provide their own seed.
+
+The controller starts the match and exposes pause/resume, advancement, substitutions and tactical changes. The UI advances the controller while playback is active. At full-time, statistics, the event timeline, player ratings and Man of the Match are derived from that match's recorded state and events.
+
+## Demo checklist
+
+Start the development server with `npm run dev`, then use this manual browser walkthrough:
+
+1. Start the initial match and use New Match to create another session.
+2. Start/resume playback, pause it, resume it, and advance by a minute or to the next event.
+3. Change the home team's tactics or formation while paused.
+4. Make a valid substitution and confirm it appears in the timeline.
+5. Let the match reach full-time and inspect the score, statistics, timeline, player ratings and Man of the Match.
+6. Start another match and confirm the score/events reset and the match progresses as a fresh session.
+
+Automated tests cover the engine, controller, session factory and report derivation. They do not replace checking this browser flow and responsive layout manually.
 
 ## Project structure
 
