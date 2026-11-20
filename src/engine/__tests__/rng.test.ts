@@ -13,6 +13,14 @@ describe("createRng", () => {
     expect(firstSequence).toEqual(secondSequence);
   });
 
+  it("produces different streams from different seeds", () => {
+    const first = createRng(12345);
+    const second = createRng(12346);
+    expect(Array.from({ length: 10 }, () => first.next())).not.toEqual(
+      Array.from({ length: 10 }, () => second.next()),
+    );
+  });
+
   it("produces values between 0 and 1", () => {
     const rng = createRng(42);
 

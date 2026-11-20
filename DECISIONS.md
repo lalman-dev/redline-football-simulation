@@ -141,6 +141,22 @@ Passing options are weighted using:
 
 One limitation is that the engine does not have a completely independent off-ball attacking system. The ball carrier remains the shooter, so these decisions are still part of a simplified possession model.
 
+## D-012: Spatially Informed Failed-Pass Interceptions
+
+**Decision:** I select an interceptor from active, positioned outfield players by proximity to the failed pass destination. Positioning is a deterministic tie-breaker. The selected defender moves no more than 4.5 metres toward the destination, using the existing defensive movement helper.
+
+**Why:** Selecting the globally highest-positioning player without considering location repeatedly assigned failed passes to the first centre-back in the calibration lineup. Proximity makes the turnover location and player more spatially relevant without adding random draws or changing pass success probability.
+
+This remains an abstraction: it does not simulate a continuous ball trajectory or collision with a defender. The latest calibration shows that the change redistributes interceptions but does not improve scoring calibration; the goal and penalty rates remain known limitations.
+
+## D-013: UI-Owned Session Seeds and Event-Derived Reports
+
+**Decision:** The UI session factory owns fresh seed generation for browser matches. It creates a new match state and controller for each session. The engine continues to accept explicit seeds for deterministic replay and headless runs.
+
+**Why:** This keeps seed ownership in one place while preserving deterministic engine behavior. Match statistics, timeline, player ratings and Man of the Match are derived from the active match state and its event log rather than maintained as separate simulation state.
+
+The browser session uses the browser crypto API to obtain a seed. The report and ratings remain prototype analyses and are not validated against an external football rating standard.
+
 ---
 
 ## Closing note

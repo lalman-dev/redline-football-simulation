@@ -440,14 +440,6 @@ export function makePass(state: MatchState, receiverId: string): MatchState {
     state.secondHalfAddedTimeSeconds,
   );
 
-  const interceptor = successful
-    ? undefined
-    : defenders.reduce((best, player) =>
-        player.attributes.positioning > best.attributes.positioning
-          ? player
-          : best,
-      );
-
   const forwardDistance = successful
     ? 4 + rng.next() * 10
     : -(2 + rng.next() * 4);
@@ -461,12 +453,49 @@ export function makePass(state: MatchState, receiverId: string): MatchState {
     lateralDistance,
   );
 
+  // An unsuccessful pass is intercepted by an active defender near its
+  // destination. Positioning breaks proximity ties without letting a distant
+  // player beat a defender who is actually closer to the pass.
+  const interceptor = successful
+    ? undefined
+    : defenders
+        .filter((player) => !state.dismissedPlayerIds.includes(player.id))
+        .filter((player) => state.playerPositions[player.id] !== undefined)
+        .map((player) => ({
+          player,
+          distance: Math.hypot(
+            state.playerPositions[player.id]!.x - ballPosition.x,
+            state.playerPositions[player.id]!.y - ballPosition.y,
+          ),
+        }))
+        .sort((a, b) =>
+          a.distance - b.distance ||
+          b.player.attributes.positioning - a.player.attributes.positioning ||
+          a.player.id.localeCompare(b.player.id),
+        )[0]?.player;
+
+  if (!successful && !interceptor) {
+    throw new Error("No eligible defender is positioned to intercept the pass.");
+  }
+
+  // Use the existing defensive close-down movement limit. A defender may
+  // intercept short of the pass destination, but is never moved directly
+  // across the pitch to it.
+  const interceptionPosition = interceptor
+    ? movePlayerTowards(
+        state.playerPositions[interceptor.id]!,
+        ballPosition,
+        4.5,
+      )
+    : undefined;
+  const resolvedBallPosition = interceptionPosition ?? ballPosition;
+
   const receivingPlayerId = successful ? receiver.id : interceptor?.id;
 
   const playerPositions = receivingPlayerId
     ? {
         ...state.playerPositions,
-        [receivingPlayerId]: ballPosition,
+        [receivingPlayerId]: resolvedBallPosition,
       }
     : state.playerPositions;
 
@@ -489,7 +518,7 @@ export function makePass(state: MatchState, receiverId: string): MatchState {
     ...state,
     phase: clock.phase,
     elapsedSeconds,
-    ballPosition,
+    ballPosition: resolvedBallPosition,
     playerPositions,
     possessionTeamId: successful ? team.id : opposition.id,
     ballCarrierId: successful ? receiver.id : (interceptor?.id ?? null),

@@ -12,6 +12,8 @@ import {
   substitutePlayer,
   getTackleSuccessProbability,
 } from "../match.js";
+import { executeNextAction } from "../simulation.js";
+import { createRng } from "../rng.js";
 import type { Player, Team, TeamSelection } from "../types.js";
 
 const attributes = {
@@ -173,12 +175,16 @@ describe("startMatch", () => {
     expect(match.events[0]?.playerId).toBe(match.ballCarrierId);
     expect(homeTeam.squad.find((player) => player.id === match.ballCarrierId)?.primaryPosition).toBe("ST");
     expect(match.playerPositions[match.ballCarrierId!]).toEqual(match.ballPosition);
+    expect(match.ballPosition).toEqual({ x: 52.5, y: 34 });
     expect(awayTeam.squad.some((player) => player.id === match.ballCarrierId)).toBe(false);
     expect(match.events).toHaveLength(1);
     expect(match.events[0]?.type).toBe("kickoff");
+
+    const firstAction = executeNextAction(match);
+    expect(firstAction.events[1]?.playerId).toBe(match.events[0]?.playerId);
   });
 
-  it("uses an attacking fallback when no starting striker exists", () => {
+  it("prefers a wide player when a striker is absent, matching V1.0 order", () => {
     const noStrikerTeam: Team = {
       ...homeTeam,
       squad: homeTeam.squad.map((player) =>
@@ -246,11 +252,15 @@ describe("startSecondHalf", () => {
     expect(match.events[1]?.playerId).toBe(match.ballCarrierId);
     expect(awayTeam.squad.find((player) => player.id === match.ballCarrierId)?.primaryPosition).toBe("ST");
     expect(match.playerPositions[match.ballCarrierId!]).toEqual(match.ballPosition);
+    expect(match.ballPosition).toEqual({ x: 52.5, y: 34 });
     expect(homeTeam.squad.some((player) => player.id === match.ballCarrierId)).toBe(false);
     expect(match.events).toHaveLength(2);
     expect(match.events[1]?.minute).toBe(45);
     expect(match.events[1]?.elapsedSeconds).toBe(2700);
     expect(match.events[1]?.description).toContain("second half");
+
+    const firstAction = executeNextAction(match);
+    expect(firstAction.events[2]?.playerId).toBe(match.events[1]?.playerId);
   });
 
   it("rejects a kickoff before half-time", () => {
@@ -339,13 +349,141 @@ describe("makePass", () => {
     return startMatch(state, homeTeam.id);
   }
 
+  function failedPassDestination(seed: number) {
+    const rng = createRng(seed);
+    rng.next(); // pass outcome
+    rng.next(); // action duration
+    const forwardDistance = -(2 + rng.next() * 4);
+    const lateralDistance = (rng.next() - 0.5) * 12;
+    return {
+      x: 52.5 + forwardDistance,
+      y: 34 + lateralDistance,
+    };
+  }
+
+  function createInterceptionState(
+    seed: number,
+    defenderSetup: Readonly<Record<string, { x: number; y: number; positioning?: number }>>,
+    unavailableIds: readonly string[] = [],
+  ) {
+    const started = createStartedMatch(seed);
+    const awayTeam: Team = {
+      ...started.awayTeam,
+      squad: started.awayTeam.squad.map((player) => {
+        const setup = defenderSetup[player.id];
+        return setup?.positioning === undefined
+          ? player
+          : {
+              ...player,
+              attributes: { ...player.attributes, positioning: setup.positioning },
+            };
+      }),
+    };
+    const awaySelection = {
+      ...started.awaySelection,
+      startingXI: started.awaySelection.startingXI.filter((id) => !unavailableIds.includes(id)),
+    };
+    const playerPositions = { ...started.playerPositions };
+    for (const player of awayTeam.squad) {
+      if (player.primaryPosition === "GK") continue;
+      const setup = defenderSetup[player.id];
+      if (unavailableIds.includes(player.id)) {
+        delete playerPositions[player.id];
+      } else {
+        playerPositions[player.id] = setup ?? { x: 1, y: 1 };
+      }
+    }
+    return {
+      ...started,
+      awayTeam,
+      awaySelection,
+      dismissedPlayerIds: [...started.dismissedPlayerIds, ...unavailableIds],
+      playerPositions,
+    };
+  }
+
+  it("selects the nearest eligible defender even when a farther defender has better positioning", () => {
+    const seed = 4;
+    const destination = failedPassDestination(seed);
+    const state = createInterceptionState(seed, {
+      "away-player-2": { x: destination.x + 10, y: destination.y, positioning: 100 },
+      "away-player-3": { x: destination.x + 1, y: destination.y, positioning: 20 },
+    });
+
+    const result = makePass(state, "home-player-10");
+    const repeated = makePass(state, "home-player-10");
+    const pass = result.events.at(-1)!;
+
+    expect(repeated).toEqual(result);
+    expect(pass.type).toBe("pass");
+    expect(pass.outcome).toBe("unsuccessful");
+    expect(pass.interceptedByPlayerId).toBe("away-player-3");
+    expect(result.ballCarrierId).toBe("away-player-3");
+  });
+
+  it("uses positioning as a secondary choice when defenders are equally close", () => {
+    const seed = 4;
+    const destination = failedPassDestination(seed);
+    const state = createInterceptionState(seed, {
+      "away-player-2": { x: destination.x + 3, y: destination.y, positioning: 95 },
+      "away-player-3": { x: destination.x - 3, y: destination.y, positioning: 40 },
+    });
+
+    const result = makePass(state, "home-player-10");
+
+    expect(result.events.at(-1)?.interceptedByPlayerId).toBe("away-player-2");
+  });
+
+  it("excludes dismissed, out-of-XI and goalkeeper candidates", () => {
+    const seed = 4;
+    const destination = failedPassDestination(seed);
+    const state = createInterceptionState(seed, {
+      "away-player-2": { x: destination.x, y: destination.y, positioning: 100 },
+      "away-player-3": { x: destination.x + 2, y: destination.y, positioning: 70 },
+      "away-player-4": { x: destination.x + 1, y: destination.y, positioning: 100 },
+    }, ["away-player-4"]);
+    const stateWithKeeperNearby = {
+      ...state,
+      dismissedPlayerIds: [...state.dismissedPlayerIds, "away-player-2"],
+      playerPositions: {
+        ...state.playerPositions,
+        "away-player-1": destination,
+      },
+    };
+
+    const result = makePass(stateWithKeeperNearby, "home-player-10");
+
+    expect(result.events.at(-1)?.interceptedByPlayerId).toBe("away-player-3");
+    expect(stateWithKeeperNearby.dismissedPlayerIds).toContain("away-player-2");
+    expect(stateWithKeeperNearby.awaySelection.startingXI).not.toContain("away-player-4");
+    expect(result.events.at(-1)?.interceptedByPlayerId).not.toBe("away-player-1");
+  });
+
+  it("limits interceptor movement and keeps the ball at the reachable interception point", () => {
+    const seed = 4;
+    const destination = failedPassDestination(seed);
+    const state = createInterceptionState(seed, {
+      "away-player-2": { x: destination.x + 20, y: destination.y, positioning: 100 },
+    });
+
+    const result = makePass(state, "home-player-10");
+    const interceptorId = result.events.at(-1)?.interceptedByPlayerId;
+    const before = state.playerPositions[interceptorId!]!;
+    const after = result.playerPositions[interceptorId!]!;
+
+    expect(interceptorId).toBe("away-player-2");
+    expect(Math.hypot(after.x - before.x, after.y - before.y)).toBeLessThanOrEqual(4.5);
+    expect(after).toEqual(result.ballPosition);
+    expect(Math.hypot(after.x - destination.x, after.y - destination.y)).toBeGreaterThan(0);
+  });
+
   it("records a pass and advances match time", () => {
     const state = createStartedMatch(12345);
     const nextState = makePass(state, "home-player-10");
     const passEvent = nextState.events[1];
 
     expect(passEvent?.type).toBe("pass");
-    expect(passEvent?.playerId).toBe("home-player-11");
+    expect(passEvent?.playerId).toBe(state.ballCarrierId);
     expect(passEvent?.targetPlayerId).toBe("home-player-10");
     expect(nextState.elapsedSeconds).toBeGreaterThan(0);
     expect(nextState.elapsedSeconds).toBeLessThanOrEqual(4);
@@ -384,7 +522,7 @@ describe("makePass", () => {
   it("rejects passing to the same player", () => {
     const state = createStartedMatch(12345);
 
-    expect(() => makePass(state, "home-player-11")).toThrow(
+    expect(() => makePass(state, state.ballCarrierId!)).toThrow(
       "A player cannot pass to themselves.",
     );
   });
@@ -496,7 +634,7 @@ describe("makeTackle", () => {
 
     expect(tackleEvent?.type).toBe("tackle");
     expect(tackleEvent?.playerId).toBe("away-player-2");
-    expect(tackleEvent?.targetPlayerId).toBe("home-player-11");
+    expect(tackleEvent?.targetPlayerId).toBe(state.ballCarrierId);
     expect(nextState.elapsedSeconds).toBeGreaterThan(0);
     expect(nextState.elapsedSeconds).toBeLessThanOrEqual(4);
   });
@@ -511,7 +649,7 @@ describe("makeTackle", () => {
       expect(nextState.ballCarrierId).toBe("away-player-2");
     } else {
       expect(nextState.possessionTeamId).toBe("home");
-      expect(nextState.ballCarrierId).toBe("home-player-11");
+      expect(nextState.ballCarrierId).toBe(state.ballCarrierId);
     }
   });
 
@@ -781,6 +919,27 @@ describe("makeShot", () => {
     }
     return goals;
   }
+
+  it("restarts after a goal using the submitted V1.0 kickoff preference", () => {
+    let scored: ReturnType<typeof makeShot> | undefined;
+    for (let seed = 1; seed <= 1000 && !scored; seed += 1) {
+      const attempt = makeShot(createShotScenario(seed, 5));
+      if (attempt.score.home === 1) scored = attempt;
+    }
+    expect(scored).toBeDefined();
+    const restart = scored!.events.at(-1)!;
+    expect(restart.type).toBe("kickoff");
+    expect(restart.teamId).toBe("away");
+    expect(restart.playerId).toBe("away-player-11");
+    expect(scored!.possessionTeamId).toBe("away");
+    expect(scored!.ballCarrierId).toBe(restart.playerId);
+    expect(scored!.ballPosition).toEqual({ x: 52.5, y: 34 });
+    expect(scored!.playerPositions[restart.playerId!]).toEqual(scored!.ballPosition);
+    expect(scored!.awayTeam.squad.find((player) => player.id === restart.playerId)?.primaryPosition).toBe("ST");
+
+    const firstAction = executeNextAction(scored!);
+    expect(firstAction.events.find((event) => event.id > restart.id)?.playerId).toBe(restart.playerId);
+  });
 
   function findShotOutcome(expected: "goal" | "saved" | "off-target") {
     for (let seed = 1; seed <= 1000; seed++) {
@@ -1056,7 +1215,7 @@ describe("substitutePlayer", () => {
     const nextState = substitutePlayer(
       state,
       homeTeam.id,
-      "home-player-11",
+      state.ballCarrierId!,
       "home-player-16",
     );
 

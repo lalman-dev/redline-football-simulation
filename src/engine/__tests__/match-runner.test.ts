@@ -120,6 +120,7 @@ describe("simulateMatch", () => {
 
       expect(kickoff.playerId).toBeDefined();
       expect(selection.startingXI).toContain(kickoff.playerId);
+      // Match the submitted V1.0 kickoff preference: an available starting ST takes it.
       expect(taker?.primaryPosition).toBe("ST");
       expect(kickoff.teamId === "home"
         ? result.awayTeam.squad.some((player) => player.id === kickoff.playerId)
@@ -170,6 +171,26 @@ describe("simulateMatch", () => {
     expect(first.score).toEqual(second.score);
     expect(first.events).toEqual(second.events);
     expect(first.rngState).toBe(second.rngState);
+  });
+
+  it("varies event sequences across 100 different seeds with fixed inputs", () => {
+    const eventSequences = new Set<string>();
+    const rngSequences = new Set<string>();
+
+    for (let seed = 50_000; seed < 50_100; seed += 1) {
+      const result = simulateMatch(createInitialState(seed), { kickoffTeamId: "home" });
+      eventSequences.add(JSON.stringify(result.events.map((event) => [
+        event.type,
+        event.elapsedSeconds,
+        event.teamId,
+        event.playerId,
+        event.outcome,
+      ])));
+      rngSequences.add(String(result.rngState));
+    }
+
+    expect(rngSequences.size).toBe(100);
+    expect(eventSequences.size).toBeGreaterThan(90);
   });
 
   it("rejects an action limit that is too small", () => {

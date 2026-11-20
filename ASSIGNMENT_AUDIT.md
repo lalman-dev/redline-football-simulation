@@ -21,8 +21,16 @@ Status reflects the current code and tests. “Implemented” means the feature 
 
 ## Current calibration note
 
-In the latest 1,000-match synthetic run, the engine averaged **4.79 goals per match** and awarded **3,985 penalties**. Open-play conversion was **7.2%**; penalty-area foul frequency accounts for much of the elevated total. The broad 2.2–3.2 goals-per-match calibration target is not currently met. The calibration report separates penalty and open-play outcomes and found no score/goal-event mismatches.
+In the latest 1,000-match synthetic run (seeds 10000–10999), the engine averaged **5.49 goals and 4.135 penalties per match**. It recorded 3,187 penalty goals, 2,300 open-play goals, 30.157 open-play shots per match and **7.6%** open-play conversion. **639 matches (63.9%) had five or more goals.** The broad 2.2–3.2 goals-per-match prototype target is not met. Penalty and open-play outcomes are reported separately, and this run had no score/goal-event mismatches.
 
 ## Verification
 
-The current suite has 180 Vitest tests across 15 files. The production build, calibration, strength, tactics and shooting validation commands have been run. Their synthetic results are regression signals, not proof of real-world accuracy.
+Finalisation verification: **198 Vitest tests passed across 18 files**; `npm run build` passed; `npm run calibrate` completed all 1,000 matches with zero failures; and `git diff --check` passed. Calibration uses synthetic fixtures. Its metrics are regression signals, not proof of real-world accuracy. The current goal and penalty rates remain a known limitation.
+
+## Match lifecycle and reporting
+
+The UI session factory creates a fresh match state and controller and supplies a seed from the browser crypto API. The engine accepts explicit seeds and remains deterministic for identical inputs. Live playback and headless simulation share the action executor. Snapshots preserve RNG state for deterministic continuation.
+
+The event log drives match statistics and the full-time explanation. Player ratings and Man of the Match are derived in the UI from recorded contributions. They are prototype metrics, not a validated external rating system. The UI provides manager substitutions and tactical/formation controls.
+
+Failed-pass interception now considers defender proximity to the pass destination, with positioning as a tie-breaker and movement capped at 4.5 metres. This reduced the calibration's centre-back interception concentration, but the same-seed 1,000-match comparison increased open-play shots and goals; it did not solve the scoring limitation.
