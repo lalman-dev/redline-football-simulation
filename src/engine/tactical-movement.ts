@@ -10,6 +10,9 @@ import {
 const clamp = (value: number, min: number, max: number): number =>
   Math.max(min, Math.min(max, value));
 
+// Used only when a caller does not say how long the action took.
+const DEFAULT_ACTION_SECONDS = 3;
+
 type TacticalRole = "goalkeeper" | "defender" | "midfielder" | "forward";
 
 function getRole(player: Player): TacticalRole {
@@ -173,6 +176,8 @@ function getTeamTarget(
   };
 }
 
+// Movement speed in metres per second.
+// Jogging is roughly 3-4 m/s; a fast player sprints at about 8 m/s.
 function getMovementSpeed(
   context: TeamMovementContext,
   player: Player,
@@ -180,23 +185,26 @@ function getMovementSpeed(
   const role = getRole(player);
 
   if (role === "goalkeeper") {
-    return 0.7;
+    return 2.5;
   }
 
-  const baseSpeed = context.hasPossession ? 1.5 : 1.8;
+  const baseSpeed = context.hasPossession ? 3.0 : 3.4;
 
   const pressingBonus = context.hasPossession
     ? 0
-    : (context.pressing / 100) * 0.8;
+    : (context.pressing / 100) * 1.2;
 
-  const paceBonus = (player.attributes.pace / 100) * 0.5;
+  const paceBonus = (player.attributes.pace / 100) * 2.0;
 
   const tempoMultiplier = 0.9 + context.tempo / 500;
 
   return (baseSpeed + pressingBonus + paceBonus) * tempoMultiplier;
 }
 
-export function applyTacticalMovement(state: MatchState): MatchState {
+export function applyTacticalMovement(
+  state: MatchState,
+  elapsedDeltaSeconds = DEFAULT_ACTION_SECONDS,
+): MatchState {
   if (state.phase !== "first-half" && state.phase !== "second-half") {
     return state;
   }
@@ -218,7 +226,8 @@ export function applyTacticalMovement(state: MatchState): MatchState {
     const isHome = context.teamId === state.homeTeam.id;
     const team = isHome ? state.homeTeam : state.awayTeam;
     const selection = isHome ? state.homeSelection : state.awaySelection;
-    const carrierPosition = state.playerPositions[state.ballCarrierId ?? ""] ?? state.ballPosition;
+    const carrierPosition =
+      state.playerPositions[state.ballCarrierId ?? ""] ?? state.ballPosition;
     const supportPlayerId = context.hasPossession
       ? selection.startingXI
           .map((id) => team.squad.find((candidate) => candidate.id === id))
@@ -233,8 +242,14 @@ export function applyTacticalMovement(state: MatchState): MatchState {
             const aPosition = state.playerPositions[a.id]!;
             const bPosition = state.playerPositions[b.id]!;
             return (
-              Math.hypot(aPosition.x - carrierPosition.x, aPosition.y - carrierPosition.y) -
-              Math.hypot(bPosition.x - carrierPosition.x, bPosition.y - carrierPosition.y)
+              Math.hypot(
+                aPosition.x - carrierPosition.x,
+                aPosition.y - carrierPosition.y,
+              ) -
+              Math.hypot(
+                bPosition.x - carrierPosition.x,
+                bPosition.y - carrierPosition.y,
+              )
             );
           })[0]?.id
       : undefined;
@@ -307,10 +322,11 @@ export function applyTacticalMovement(state: MatchState): MatchState {
         }
       }
 
+      // Distance covered = speed (m/s) x seconds the action took.
       nextPositions[playerId] = movePlayerTowards(
         current,
         target,
-        getMovementSpeed(context, player),
+        getMovementSpeed(context, player) * elapsedDeltaSeconds,
       );
     }
   }

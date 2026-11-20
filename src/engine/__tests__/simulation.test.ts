@@ -225,7 +225,11 @@ describe("near-ball support and passing", () => {
       positions["home-player-7"] = { x: 88, y: 58 };
 
       for (const player of initial.homeSelection.startingXI) {
-        if (player !== "home-player-11" && player !== "home-player-6" && player !== "home-player-7") {
+        if (
+          player !== "home-player-11" &&
+          player !== "home-player-6" &&
+          player !== "home-player-7"
+        ) {
           positions[player] = { x: 18, y: 8 };
         }
       }
@@ -255,15 +259,20 @@ describe("near-ball support and passing", () => {
       }
     }
 
-    const beforeDistance = 3;
-    const next = applyTacticalMovement({ ...state, playerPositions: positions });
+    const next = applyTacticalMovement(
+      { ...state, playerPositions: positions },
+      3,
+    );
     const supportPosition = next.playerPositions["home-player-6"]!;
     const afterDistance = Math.hypot(
       supportPosition.x - 50,
       supportPosition.y - 34,
     );
 
-    expect(afterDistance).toBeLessThan(beforeDistance);
+    // The support player now runs at a realistic speed and reaches the
+    // support spot, 5m ahead of the carrier, within one action.
+    expect(afterDistance).toBeCloseTo(5, 0);
+    expect(supportPosition.x).toBeGreaterThan(50);
   });
 });
 
