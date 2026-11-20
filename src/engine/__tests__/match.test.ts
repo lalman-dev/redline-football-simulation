@@ -562,7 +562,9 @@ describe("makePass", () => {
     expect(passEvent?.playerId).toBe(state.ballCarrierId);
     expect(passEvent?.targetPlayerId).toBe("home-player-10");
     expect(nextState.elapsedSeconds).toBeGreaterThan(0);
-    expect(nextState.elapsedSeconds).toBeLessThanOrEqual(4);
+    // Pass time is reaction time plus ball flight, so even a long pass
+    // should stay well under 10 seconds.
+    expect(nextState.elapsedSeconds).toBeLessThanOrEqual(8);
   });
 
   it("transfers possession according to the pass outcome", () => {

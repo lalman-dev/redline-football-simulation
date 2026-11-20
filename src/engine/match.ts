@@ -10,6 +10,12 @@ import { clampPitchPosition, moveBall } from "./pitch.js";
 import { createMatchPlayerPositions, movePlayerTowards } from "./spatial.js";
 import { applyTacticalMovement } from "./tactical-movement.js";
 
+// Ball and player physics (metres and seconds).
+const PASS_REACTION_SECONDS = 2.6; // control, look up and strike
+const PASS_BALL_SPEED = 15; // m/s, typical ground pass
+const CARRY_MIN_SPEED = 2.5; // m/s with the ball, weakest dribbler
+const CARRY_SPEED_RANGE = 2.5; // extra m/s for the best dribbler
+const CARRY_FORWARD_SHARE = 0.3; // share of carry distance that is forward
 const RUN_ON_MIN = 3;
 const RUN_ON_RANGE = 8;
 const KICKOFF_POSITION = { x: 52.5, y: 34 } as const;
@@ -337,23 +343,29 @@ export function makeCarry(state: MatchState): MatchState {
       )) /
     200;
 
-  const forwardDistance = 1.5 + skillFactor * 3 + rng.next() * 2;
-  const lateralDistance = (rng.next() - 0.5) * 4;
+  const carrySpeed = CARRY_MIN_SPEED + skillFactor * CARRY_SPEED_RANGE;
 
-  const ballPosition = moveBall(
-    state.ballPosition,
-    attackingRight,
-    forwardDistance,
-    lateralDistance,
-  );
-
-  const proposedDuration = 5 + Math.floor(rng.next() * 5);
+  const proposedDuration = 2 + Math.floor(rng.next() * 4);
   const duration = capActionDuration(
     state.elapsedSeconds,
     proposedDuration,
     state.phase,
     state.firstHalfAddedTimeSeconds,
     state.secondHalfAddedTimeSeconds,
+  );
+
+  // Distance covered is speed x time, so a carry cut short by the whistle
+  // is shorter too.
+  const carryDistance = carrySpeed * duration;
+  const forwardDistance =
+    carryDistance * CARRY_FORWARD_SHARE * (0.8 + rng.next() * 0.4);
+  const lateralDistance = (rng.next() - 0.5) * carryDistance * 0.4;
+
+  const ballPosition = moveBall(
+    state.ballPosition,
+    attackingRight,
+    forwardDistance,
+    lateralDistance,
   );
 
   const elapsedSeconds = state.elapsedSeconds + duration;
@@ -379,17 +391,20 @@ export function makeCarry(state: MatchState): MatchState {
     outcome: "successful",
   };
 
-  return applyTacticalMovement({
-    ...state,
-    phase: clock.phase,
-    elapsedSeconds,
-    ballPosition,
-    playerPositions,
-    possessionTeamId: attackingTeam.id,
-    ballCarrierId: carrier.id,
-    rngState: rng.getState(),
-    events: [...state.events, nextEvent],
-  });
+  return applyTacticalMovement(
+    {
+      ...state,
+      phase: clock.phase,
+      elapsedSeconds,
+      ballPosition,
+      playerPositions,
+      possessionTeamId: attackingTeam.id,
+      ballCarrierId: carrier.id,
+      rngState: rng.getState(),
+      events: [...state.events, nextEvent],
+    },
+    duration,
+  );
 }
 
 export function makePass(state: MatchState, receiverId: string): MatchState {
@@ -449,22 +464,8 @@ export function makePass(state: MatchState, receiverId: string): MatchState {
       0.92,
       0.72 +
         (isHome ? 0.015 : 0) +
-        (fatigueAdjusted(
-          passer.attributes.passing,
-          passer.attributes.stamina,
-          state.elapsedSeconds,
-          getTacticalLoad(selection),
-        ) -
-          50) *
-          0.003 +
-        (fatigueAdjusted(
-          receiver.attributes.positioning,
-          receiver.attributes.stamina,
-          state.elapsedSeconds,
-          getTacticalLoad(selection),
-        ) -
-          50) *
-          0.001 -
+        (fatigueAdjusted(passer.attributes.passing, passer.attributes.stamina, state.elapsedSeconds, getTacticalLoad(selection)) - 50) * 0.003 +
+        (fatigueAdjusted(receiver.attributes.positioning, receiver.attributes.stamina, state.elapsedSeconds, getTacticalLoad(selection)) - 50) * 0.001 -
         (averageDefending - 50) * 0.002,
     ),
   );
@@ -472,7 +473,30 @@ export function makePass(state: MatchState, receiverId: string): MatchState {
   const rng = createRng(state.rngState);
   const successful = rng.next() < probability;
 
-  const proposedDuration = 2 + Math.floor(rng.next() * 4);
+  // Drawn here so the random sequence stays: outcome, timing, aim.
+  const timingJitter = rng.next();
+
+  // The ball travels to the receiver's actual position. Accurate passes land
+  // within ~1.5m; failed passes drift up to ~6m off target.
+  const receiverPosition = state.playerPositions[receiver.id] ?? state.ballPosition;
+  const aimError = successful ? 1.5 : 6;
+  const runOn = successful ? RUN_ON_MIN + rng.next() * RUN_ON_RANGE : 0;
+  const ballPosition = clampPitchPosition({
+    x: receiverPosition.x + (attackingRight ? runOn : -runOn) + (rng.next() - 0.5) * 2 * aimError,
+    y: receiverPosition.y + (rng.next() - 0.5) * 2 * aimError,
+  });
+
+  // Pass time = reaction time + ball flight (distance / ball speed).
+  const passDistance = Math.hypot(
+    ballPosition.x - state.ballPosition.x,
+    ballPosition.y - state.ballPosition.y,
+  );
+  const proposedDuration = Math.max(
+    1,
+    Math.round(
+      PASS_REACTION_SECONDS + passDistance / PASS_BALL_SPEED + timingJitter * 1.5,
+    ),
+  );
   const duration = capActionDuration(
     state.elapsedSeconds,
     proposedDuration,
@@ -487,20 +511,6 @@ export function makePass(state: MatchState, receiverId: string): MatchState {
     state.firstHalfAddedTimeSeconds,
     state.secondHalfAddedTimeSeconds,
   );
-
-  // The ball travels to the receiver's actual position. Accurate passes land
-  // within ~1.5m; failed passes drift up to ~6m off target.
-  const receiverPosition =
-    state.playerPositions[receiver.id] ?? state.ballPosition;
-  const aimError = successful ? 1.5 : 6;
-  const runOn = successful ? RUN_ON_MIN + rng.next() * RUN_ON_RANGE : 0;
-  const ballPosition = clampPitchPosition({
-    x:
-      receiverPosition.x +
-      (attackingRight ? runOn : -runOn) +
-      (rng.next() - 0.5) * 2 * aimError,
-    y: receiverPosition.y + (rng.next() - 0.5) * 2 * aimError,
-  });
 
   // An unsuccessful pass is intercepted by an active defender near its
   // destination. Positioning breaks proximity ties without letting a distant
@@ -517,17 +527,14 @@ export function makePass(state: MatchState, receiverId: string): MatchState {
             state.playerPositions[player.id]!.y - ballPosition.y,
           ),
         }))
-        .sort(
-          (a, b) =>
-            a.distance - b.distance ||
-            b.player.attributes.positioning - a.player.attributes.positioning ||
-            a.player.id.localeCompare(b.player.id),
+        .sort((a, b) =>
+          a.distance - b.distance ||
+          b.player.attributes.positioning - a.player.attributes.positioning ||
+          a.player.id.localeCompare(b.player.id),
         )[0]?.player;
 
   if (!successful && !interceptor) {
-    throw new Error(
-      "No eligible defender is positioned to intercept the pass.",
-    );
+    throw new Error("No eligible defender is positioned to intercept the pass.");
   }
 
   // Use the existing defensive close-down movement limit. A defender may
@@ -576,7 +583,7 @@ export function makePass(state: MatchState, receiverId: string): MatchState {
     ballCarrierId: successful ? receiver.id : (interceptor?.id ?? null),
     rngState: rng.getState(),
     events: [...state.events, nextEvent],
-  });
+  }, duration);
 }
 
 export function makeTackle(state: MatchState, tacklerId: string): MatchState {
